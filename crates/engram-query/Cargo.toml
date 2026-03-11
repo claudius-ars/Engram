@@ -1,0 +1,19 @@
+[package]
+name = "engram-query"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+engram-bulwark = { path = "../engram-bulwark" }
+tantivy = "0.22"
+anyhow = "1"
+md5 = "0.7"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
+engram-compiler = { path = "../engram-compiler" }

@@ -1,0 +1,16 @@
+[package]
+name = "engram-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "engram"
+path = "src/main.rs"
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+engram-bulwark = { path = "../engram-bulwark" }
+engram-compiler = { path = "../engram-compiler" }
+engram-query = { path = "../engram-query" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

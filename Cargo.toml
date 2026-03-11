@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/engram-core",
+    "crates/engram-bulwark",
+    "crates/engram-compiler",
+    "crates/engram-query",
+    "crates/engram-cli",
+    "crates/engram-openclaw",
+]
+
+[package]
+name = "engram-integration-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+engram-compiler = { path = "crates/engram-compiler" }
+engram-query    = { path = "crates/engram-query" }
+engram-openclaw = { path = "crates/engram-openclaw" }
+engram-bulwark  = { path = "crates/engram-bulwark" }
+tempfile        = "3"
+serde_json      = "1"
+serde_yaml      = "0.9"
+chrono          = "0.4"
+bincode         = "1"
+serde           = { version = "1", features = ["derive"] }
+
+[[test]]
+name = "test_pipeline"
+path = "tests/test_pipeline.rs"
+
+[[test]]
+name = "test_recall"
+path = "tests/test_recall.rs"
+
+[[test]]
+name = "test_roundtrip"
+path = "tests/test_roundtrip.rs"

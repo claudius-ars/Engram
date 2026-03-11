@@ -1,0 +1,24 @@
+[package]
+name = "engram-compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+engram-bulwark = { path = "../engram-bulwark" }
+tantivy = "0.22"
+rayon = "1"
+notify = "6"
+walkdir = "2"
+anyhow = "1"
+serde_yaml = "0.9"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+chrono = { version = "0.4", features = ["serde"] }
+libc = "0.2"
+# thiserror needed for ParseError/IndexError derives
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
