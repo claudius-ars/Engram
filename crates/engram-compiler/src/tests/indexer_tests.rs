@@ -35,6 +35,7 @@ fn make_record(id: &str, title: &str, body: &str) -> FactRecord {
         confidence: 1.0,
         domain_tags: vec![],
         warnings: vec![],
+        fact_type_explicit: true,
     }
 }
 
@@ -140,6 +141,7 @@ fn test_null_sentinel_fields() {
         confidence: 1.0,
         domain_tags: vec![],
         warnings: vec![],
+        fact_type_explicit: true,
     };
 
     let stats = writer.write(vec![record]).unwrap();
@@ -268,6 +270,7 @@ fn bench_index_500_files() {
                 confidence,
                 domain_tags,
                 warnings: vec![],
+                fact_type_explicit: true,
             }
         })
         .collect();

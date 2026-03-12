@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+engram-core = { path = "../engram-core" }
 engram-query = { path = "../engram-query" }
 engram-bulwark = { path = "../engram-bulwark" }
 serde = { version = "1", features = ["derive"] }

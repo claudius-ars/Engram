@@ -48,11 +48,7 @@ pub fn extract_frontmatter(content: &str) -> (Option<&str>, &str) {
         let yaml = &after_open[..close_pos];
         let after_close = &after_open[close_pos + 3..]; // skip "---"
         // Skip the newline right after closing ---
-        let body = if after_close.starts_with('\n') {
-            &after_close[1..]
-        } else {
-            after_close
-        };
+        let body = after_close.strip_prefix('\n').unwrap_or(after_close);
         let body = body.trim_start_matches('\n');
         (Some(yaml), body)
     } else {

@@ -33,6 +33,14 @@ pub fn format_context_block(result: &QueryResult, options: &EnrichOptions) -> St
             out.push_str(&format!("**Tags:** {}\n", hit.domain_tags.join(", ")));
         }
 
+        if !hit.keywords.is_empty() {
+            out.push_str(&format!("**Keywords:** {}\n", hit.keywords.join(", ")));
+        }
+
+        if !hit.related.is_empty() {
+            out.push_str(&format!("**Related:** {}\n", hit.related.join(", ")));
+        }
+
         if !hit.caused_by.is_empty() {
             out.push_str(&format!("**Caused by:** {}\n", hit.caused_by.join(", ")));
         }
@@ -42,6 +50,15 @@ pub fn format_context_block(result: &QueryResult, options: &EnrichOptions) -> St
                 "**Score:** {:.3} | **Tier:** {} | **Gen:** {}\n",
                 hit.score, result.meta.cache_tier, result.meta.index_generation
             ));
+            if hit.maturity < 1.0 {
+                out.push_str(&format!("**Maturity:** {:.2}\n", hit.maturity));
+            }
+            if hit.access_count > 0 {
+                out.push_str(&format!("**Accessed:** {} times\n", hit.access_count));
+            }
+            if hit.update_count > 0 {
+                out.push_str(&format!("**Updated:** {} times\n", hit.update_count));
+            }
         }
 
         out.push('\n');

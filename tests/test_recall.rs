@@ -2,6 +2,7 @@
 mod common;
 
 use engram_bulwark::BulwarkHandle;
+use engram_core::WorkspaceConfig;
 use engram_query::{ExactCache, FuzzyCache, QueryOptions};
 
 use common::{compile_clean, durable_fact, temp_workspace, write_fact};
@@ -20,7 +21,12 @@ fn query_helper(
     fuzzy_cache: &mut FuzzyCache,
 ) -> engram_query::QueryResult {
     let bulwark = BulwarkHandle::new_stub();
-    engram_query::query(root, query_str, default_query_options(), cache, fuzzy_cache, &bulwark)
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
+    engram_query::query(root, query_str, default_query_options(), cache, fuzzy_cache, &bulwark, &config)
         .expect("query should succeed")
 }
 
@@ -111,7 +117,7 @@ fn test_byterover_importance_recency_preserved() {
     write_fact(tmp.path(), "k8s-legacy.md", BYTEROVER_LOW_IMPORTANCE);
 
     // Engram fact with higher importance/recency, similar content
-    write_fact(tmp.path(), "k8s-modern.md", &format!(
+    write_fact(tmp.path(), "k8s-modern.md",
         r#"---
 title: "Kubernetes Modern Setup"
 factType: durable
@@ -123,7 +129,7 @@ tags: [infrastructure, kubernetes]
 
 Modern Kubernetes cluster setup with autoscaling and GitOps.
 "#
-    ));
+    );
 
     compile_clean(tmp.path());
 

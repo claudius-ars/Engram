@@ -22,6 +22,13 @@ fn compile_fixtures(fixtures: &[&str]) -> tempfile::TempDir {
     }
 
     engram_compiler::compile_context_tree(tmp.path(), true, &BulwarkHandle::new_stub());
+
+    // Write permissive config so scoring thresholds don't filter fixture results
+    std::fs::write(
+        tmp.path().join(".brv/engram.toml"),
+        "[query]\nscore_threshold = 0.0\nscore_gap = 0.0\n",
+    ).unwrap();
+
     tmp
 }
 

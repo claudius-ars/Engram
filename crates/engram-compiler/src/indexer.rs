@@ -2,14 +2,17 @@ use std::path::{Path, PathBuf};
 
 use engram_core::{FactRecord, FactType};
 use tantivy::schema::*;
-use tantivy::{doc, Index};
+use tantivy::{doc, Index, Term};
 
 /// Sentinel value for null timestamps and null i64 fields.
 /// Do not use 0 — that is a valid Unix timestamp (1970-01-01).
 pub const NULL_TIMESTAMP: i64 = i64::MIN;
 
 /// Current schema version. Increment when the Tantivy schema changes.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// v2: source_path changed from STORED-only to STRING | STORED to enable
+///     delete_term() for incremental compilation. Without INDEXED, delete_term()
+///     silently does nothing.
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 const SCHEMA_VERSION_FILE: &str = "engram_schema_version";
 
@@ -60,8 +63,11 @@ pub fn build_schema() -> Schema {
     builder.add_i64_field("created_at_ts", FAST);
     builder.add_i64_field("updated_at_ts", FAST);
 
+    // STRING | STORED — exact-match indexed (not tokenized) so that delete_term()
+    // works for incremental compilation. STRING = INDEXED without tokenization.
+    builder.add_text_field("source_path", STRING | STORED);
+
     // STORED-only fields — retrievable for result reconstruction, not searched
-    builder.add_text_field("source_path", STORED);
     builder.add_text_field("caused_by", STORED);
     builder.add_text_field("causes", STORED);
     builder.add_text_field("related", STORED);
@@ -111,9 +117,9 @@ fn handle_schema_version(index_dir: &Path) -> Result<(), IndexError> {
         },
         Err(_) => {
             eprintln!(
-                "WARN: Engram schema version mismatch. Index was built with schema v{}. \
+                "WARN: Engram schema version mismatch. Index was built with schema v?. \
                  Current schema is v{}. Wiping and rebuilding the index.",
-                "?", CURRENT_SCHEMA_VERSION
+                CURRENT_SCHEMA_VERSION,
             );
             true
         }
@@ -236,4 +242,121 @@ impl IndexWriter {
             elapsed_ms,
         })
     }
+}
+
+/// Build a Tantivy document from a FactRecord using the given schema.
+pub fn build_document(schema: &Schema, record: FactRecord) -> tantivy::TantivyDocument {
+    let f_title = schema.get_field("title").unwrap();
+    let f_body = schema.get_field("body").unwrap();
+    let f_tags = schema.get_field("tags").unwrap();
+    let f_keywords = schema.get_field("keywords").unwrap();
+    let f_domain_tags = schema.get_field("domain_tags").unwrap();
+    let f_id = schema.get_field("id").unwrap();
+    let f_importance = schema.get_field("importance").unwrap();
+    let f_recency = schema.get_field("recency").unwrap();
+    let f_confidence = schema.get_field("confidence").unwrap();
+    let f_fact_type_int = schema.get_field("fact_type_int").unwrap();
+    let f_valid_until_ts = schema.get_field("valid_until_ts").unwrap();
+    let f_event_sequence = schema.get_field("event_sequence").unwrap();
+    let f_created_at_ts = schema.get_field("created_at_ts").unwrap();
+    let f_updated_at_ts = schema.get_field("updated_at_ts").unwrap();
+    let f_source_path = schema.get_field("source_path").unwrap();
+    let f_caused_by = schema.get_field("caused_by").unwrap();
+    let f_causes = schema.get_field("causes").unwrap();
+    let f_related = schema.get_field("related").unwrap();
+    let f_maturity = schema.get_field("maturity").unwrap();
+    let f_access_count = schema.get_field("access_count").unwrap();
+    let f_update_count = schema.get_field("update_count").unwrap();
+
+    doc!(
+        f_title => record.title.unwrap_or_default(),
+        f_body => record.body,
+        f_tags => record.tags.join(" "),
+        f_keywords => record.keywords.join(" "),
+        f_domain_tags => record.domain_tags.join(" "),
+        f_id => record.id,
+        f_importance => record.importance,
+        f_recency => record.recency,
+        f_confidence => record.confidence,
+        f_fact_type_int => fact_type_to_u64(&record.fact_type),
+        f_valid_until_ts => record.valid_until.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
+        f_event_sequence => record.event_sequence.unwrap_or(NULL_TIMESTAMP),
+        f_created_at_ts => record.created_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
+        f_updated_at_ts => record.updated_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
+        f_source_path => record.source_path.to_string_lossy().to_string(),
+        f_caused_by => serde_json::to_string(&record.caused_by).unwrap_or_default(),
+        f_causes => serde_json::to_string(&record.causes).unwrap_or_default(),
+        f_related => serde_json::to_string(&record.related).unwrap_or_default(),
+        f_maturity => record.maturity,
+        f_access_count => record.access_count,
+        f_update_count => record.update_count
+    )
+}
+
+/// Open or create the Tantivy index at the standard location, handling schema
+/// version checks and directory creation.
+pub fn open_index(root: &Path) -> Result<(Index, Schema), IndexError> {
+    let index_dir = root.join(".brv").join("index").join("tantivy");
+    std::fs::create_dir_all(&index_dir)?;
+    handle_schema_version(&index_dir)?;
+    let schema = build_schema();
+    let index = Index::open_or_create(
+        tantivy::directory::MmapDirectory::open(&index_dir)?,
+        schema.clone(),
+    )?;
+    Ok((index, schema))
+}
+
+/// Perform an incremental update: delete stale documents and insert new ones.
+/// All deletes and adds go into a SINGLE commit — preserves the Phase 1
+/// single-commit performance contract and gives atomic reader visibility.
+///
+/// source_path is confirmed STRING | STORED (schema v2) — delete_term() works
+/// because STRING fields are indexed with exact match.
+pub fn incremental_update(
+    schema: &Schema,
+    writer: &mut tantivy::IndexWriter,
+    deletions: &[String],
+    additions: &[FactRecord],
+) -> Result<IndexStats, IndexError> {
+    let start = std::time::Instant::now();
+
+    let f_source_path = schema.get_field("source_path").unwrap();
+
+    // Delete documents for each path
+    for path in deletions {
+        let term = Term::from_field_text(f_source_path, path);
+        writer.delete_term(term);
+    }
+
+    // Add new documents
+    let mut documents_written = 0usize;
+    let mut documents_skipped = 0usize;
+
+    for record in additions {
+        let doc_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            build_document(schema, record.clone())
+        }));
+
+        match doc_result {
+            Ok(document) => {
+                writer.add_document(document)?;
+                documents_written += 1;
+            }
+            Err(_) => {
+                documents_skipped += 1;
+            }
+        }
+    }
+
+    // Single commit — all deletes and adds are atomic
+    writer.commit()?;
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    Ok(IndexStats {
+        documents_written,
+        documents_skipped,
+        elapsed_ms,
+    })
 }

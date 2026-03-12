@@ -3,6 +3,8 @@ use std::path::Path;
 use chrono::Utc;
 use engram_bulwark::BulwarkHandle;
 
+use engram_core::WorkspaceConfig;
+
 use crate::cache::ExactCache;
 use crate::fuzzy_cache::FuzzyCache;
 use crate::{query, QueryError, QueryOptions};
@@ -44,6 +46,11 @@ fn test_query_no_index_returns_error() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
     let result = query(
         tmp.path(),
         "anything",
@@ -51,6 +58,7 @@ fn test_query_no_index_returns_error() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     );
     assert!(matches!(result, Err(QueryError::IndexNotFound)));
 }
@@ -62,6 +70,11 @@ fn test_query_returns_results() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
     let result = query(
         tmp.path(),
         "Legacy",
@@ -69,6 +82,7 @@ fn test_query_returns_results() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert!(!result.hits.is_empty());
@@ -81,6 +95,11 @@ fn test_query_populates_meta() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
     let result = query(
         tmp.path(),
         "Legacy",
@@ -88,6 +107,7 @@ fn test_query_populates_meta() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(result.meta.cache_tier, 2);
@@ -101,6 +121,11 @@ fn test_query_tier0_cache_hit() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
 
     // First query populates cache
     let result1 = query(
@@ -110,6 +135,7 @@ fn test_query_tier0_cache_hit() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(result1.meta.cache_tier, 2);
@@ -122,6 +148,7 @@ fn test_query_tier0_cache_hit() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(result2.meta.cache_tier, 0);
@@ -134,6 +161,11 @@ fn test_query_dirty_skips_cache() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
 
     // Populate cache
     let r1 = query(
@@ -143,6 +175,7 @@ fn test_query_dirty_skips_cache() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r1.meta.cache_tier, 2);
@@ -158,6 +191,7 @@ fn test_query_dirty_skips_cache() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r2.meta.cache_tier, 2);
@@ -170,6 +204,11 @@ fn test_query_stale_metadata() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
 
     set_dirty(tmp.path());
 
@@ -180,6 +219,7 @@ fn test_query_stale_metadata() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert!(result.meta.stale);
@@ -193,6 +233,11 @@ fn test_policy_denied_blocks_query() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_denying();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
     let result = query(
         tmp.path(),
         "Legacy",
@@ -200,6 +245,7 @@ fn test_policy_denied_blocks_query() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     );
     assert!(matches!(result, Err(QueryError::PolicyDenied(_))));
 }
@@ -211,6 +257,11 @@ fn test_query_hit_fields() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
     let result = query(
         tmp.path(),
         "Engram",
@@ -218,6 +269,7 @@ fn test_query_hit_fields() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert!(!result.hits.is_empty());
@@ -234,6 +286,11 @@ fn test_query_tier1_cache_hit() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
 
     // First query populates both caches
     let r1 = query(
@@ -243,6 +300,7 @@ fn test_query_tier1_cache_hit() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r1.meta.cache_tier, 2);
@@ -258,6 +316,7 @@ fn test_query_tier1_cache_hit() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r2.meta.cache_tier, 1);
@@ -270,6 +329,11 @@ fn test_query_tier1_skipped_when_dirty() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy_cache = FuzzyCache::new(100);
     let bulwark = BulwarkHandle::new_stub();
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
 
     // Populate Tier 1 cache
     let r1 = query(
@@ -279,6 +343,7 @@ fn test_query_tier1_skipped_when_dirty() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r1.meta.cache_tier, 2);
@@ -294,6 +359,7 @@ fn test_query_tier1_skipped_when_dirty() {
         &mut cache,
         &mut fuzzy_cache,
         &bulwark,
+        &config,
     )
     .unwrap();
     assert_eq!(r2.meta.cache_tier, 2);

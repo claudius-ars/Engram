@@ -16,6 +16,11 @@ pub struct QueryHit {
     pub recency: f64,
     pub caused_by: Vec<String>,
     pub causes: Vec<String>,
+    pub keywords: Vec<String>,
+    pub related: Vec<String>,
+    pub maturity: f64,
+    pub access_count: u64,
+    pub update_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

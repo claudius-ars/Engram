@@ -29,6 +29,7 @@ fn make_test_record(id: &str, importance: f64, confidence: f64) -> FactRecord {
         confidence,
         domain_tags: vec![],
         warnings: vec![],
+        fact_type_explicit: true,
     }
 }
 

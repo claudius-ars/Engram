@@ -21,6 +21,7 @@ pub struct ManifestEntry {
     pub importance: f64,
     pub confidence: f64,
     pub recency: f64,
+    pub created_at_ts: i64,  // NULL_TIMESTAMP if none
     pub valid_until_ts: i64, // NULL_TIMESTAMP if none
     pub updated_at_ts: i64,  // NULL_TIMESTAMP if none
 }
@@ -82,6 +83,10 @@ impl ManifestWriter {
                 importance: r.importance,
                 confidence: r.confidence,
                 recency: r.recency,
+                created_at_ts: r
+                    .created_at
+                    .map(|dt| dt.timestamp())
+                    .unwrap_or(NULL_TIMESTAMP),
                 valid_until_ts: r
                     .valid_until
                     .map(|dt| dt.timestamp())

@@ -3,6 +3,7 @@ mod common;
 
 use engram_bulwark::BulwarkHandle;
 use engram_compiler::{curate, CurateOptions};
+use engram_core::WorkspaceConfig;
 use engram_query::{ExactCache, FuzzyCache, QueryOptions};
 
 use common::{compile_clean, temp_workspace, write_fact, durable_fact};
@@ -21,7 +22,12 @@ fn query_helper(
     fuzzy_cache: &mut FuzzyCache,
 ) -> engram_query::QueryResult {
     let bulwark = BulwarkHandle::new_stub();
-    engram_query::query(root, query_str, default_query_options(), cache, fuzzy_cache, &bulwark)
+    let config = WorkspaceConfig {
+        score_threshold: 0.0,
+        score_gap: 0.0,
+        ..WorkspaceConfig::default()
+    };
+    engram_query::query(root, query_str, default_query_options(), cache, fuzzy_cache, &bulwark, &config)
         .expect("query should succeed")
 }
 
@@ -107,7 +113,7 @@ fn test_curate_creates_valid_frontmatter() {
         "curated facts should have confidence 1.0"
     );
     assert!(
-        yaml["title"].as_str().unwrap().len() > 0,
+        !yaml["title"].as_str().unwrap().is_empty(),
         "title should be non-empty"
     );
 

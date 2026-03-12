@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use engram_bulwark::BulwarkHandle;
+use engram_core::load_workspace_config;
 use engram_query::{ExactCache, FuzzyCache, QueryError, QueryOptions};
 
 #[derive(Parser)]
@@ -16,6 +17,12 @@ enum Commands {
         /// Watch for file changes and recompile automatically
         #[arg(long)]
         watch: bool,
+        /// Run classification pipeline on unclassified facts
+        #[arg(long)]
+        classify: bool,
+        /// Use incremental compilation (reindex only changed files)
+        #[arg(long)]
+        incremental: bool,
     },
     /// Curate and summarize memory entries
     Curate {
@@ -35,18 +42,33 @@ enum Commands {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let bulwark = BulwarkHandle::new_stub();
-    let mut cache = ExactCache::new(60);
+    let root = std::env::current_dir()?;
+    let config = load_workspace_config(&root.join(".brv"));
+    let mut cache = ExactCache::new(config.exact_cache_ttl_secs);
     let mut fuzzy_cache = FuzzyCache::new(100);
 
     match cli.command {
-        Commands::Compile { watch } => {
+        Commands::Compile { watch, classify, incremental } => {
             if watch {
-                println!("--watch mode not yet implemented");
-                return Ok(());
+                return engram_compiler::watcher::run_watch(&root, &config);
             }
 
-            let root = std::env::current_dir()?;
-            let result = engram_compiler::compile_context_tree(&root, true, &bulwark);
+            // CLI --classify flag overrides config; config is fallback
+            let mut compile_config = config.compile.clone();
+            if classify {
+                compile_config.classify = true;
+            }
+
+            let result = if incremental {
+                engram_compiler::compile_incremental(&root, &bulwark, &compile_config)
+            } else {
+                engram_compiler::compile_context_tree_with_config(
+                    &root,
+                    true,
+                    &bulwark,
+                    &compile_config,
+                )
+            };
 
             // Print parse summary
             println!(
@@ -107,7 +129,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Curate { sync, summary } => {
-            let root = std::env::current_dir()?;
             let options = engram_compiler::CurateOptions { summary, sync };
 
             match engram_compiler::curate(&root, options, &bulwark) {
@@ -134,10 +155,9 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Query { query_string } => {
-            let root = std::env::current_dir()?;
             let options = QueryOptions::default();
 
-            match engram_query::query(&root, &query_string, options, &mut cache, &mut fuzzy_cache, &bulwark) {
+            match engram_query::query(&root, &query_string, options, &mut cache, &mut fuzzy_cache, &bulwark, &config) {
                 Ok(result) => {
                     if result.meta.stale {
                         eprintln!(

@@ -225,7 +225,7 @@ fn test_sync_returns_compile_result() {
         .sync_compile_result
         .as_ref()
         .expect("sync should return compile result");
-    assert!(compile.parse_result.records.len() >= 1);
+    assert!(!compile.parse_result.records.is_empty());
     assert!(compile.index_stats.as_ref().unwrap().documents_written >= 1);
     let state = compile.state.as_ref().unwrap();
     assert!(!state.dirty);

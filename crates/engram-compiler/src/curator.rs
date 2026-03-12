@@ -111,7 +111,7 @@ fn generate_md_content(summary: &str) -> String {
 
 /// Sets the dirty flag in the state file.
 fn set_dirty(index_dir: &Path) -> Result<(), StateError> {
-    std::fs::create_dir_all(index_dir).map_err(|e| StateError::Io(e))?;
+    std::fs::create_dir_all(index_dir).map_err(StateError::Io)?;
 
     let mut state = match read_state(index_dir) {
         Ok(s) => s,

@@ -2,3 +2,16 @@
 /target/
 **/*.rs.bk
 .idea/
+
+# Workspace config (user-specific)
+.brv/engram.toml
+
+# Temporal log (derived artifact, rebuilt on compile)
+.brv/index/temporal.log
+
+# Classification cache (derived artifact, rebuilt on compile)
+.brv/index/classification_cache.json
+
+# Fingerprint files (derived artifact, rebuilt on compile)
+.brv/index/fingerprints.bin
+.brv/index/fingerprints.bin.tmp

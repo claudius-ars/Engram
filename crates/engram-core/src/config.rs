@@ -1,0 +1,210 @@
+use std::path::Path;
+
+use serde::Deserialize;
+
+/// Top-level TOML structure for `.brv/engram.toml`.
+#[derive(Debug, Deserialize, Default)]
+struct ConfigFile {
+    #[serde(default)]
+    query: QuerySection,
+    #[serde(default)]
+    compile: CompileSection,
+}
+
+/// The `[query]` section of the config file.
+#[derive(Debug, Default, Deserialize)]
+struct QuerySection {
+    score_threshold: Option<f64>,
+    score_gap: Option<f64>,
+    jaccard_threshold: Option<f64>,
+    exact_cache_ttl_secs: Option<u64>,
+}
+
+/// The `[compile]` section of the config file.
+#[derive(Debug, Default, Deserialize)]
+struct CompileSection {
+    classify: Option<bool>,
+    max_tokens_per_compile: Option<u32>,
+}
+
+
+/// Compile-time configuration.
+#[derive(Debug, Clone)]
+pub struct CompileConfig {
+    /// Whether to run the classification pipeline on unclassified facts.
+    pub classify: bool,
+    /// LLM cost cap: max estimated tokens to send per compile.
+    pub max_tokens_per_compile: u32,
+}
+
+impl Default for CompileConfig {
+    fn default() -> Self {
+        CompileConfig {
+            classify: false,
+            max_tokens_per_compile: 10_000,
+        }
+    }
+}
+
+/// Workspace-level configuration for Engram.
+///
+/// All fields have sensible defaults matching the Phase 1 hardcoded values.
+/// A missing or partial `.brv/engram.toml` file leaves unspecified fields
+/// at their defaults.
+#[derive(Debug, Clone)]
+pub struct WorkspaceConfig {
+    pub score_threshold: f64,
+    pub score_gap: f64,
+    pub jaccard_threshold: f64,
+    pub exact_cache_ttl_secs: u64,
+    pub compile: CompileConfig,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        WorkspaceConfig {
+            score_threshold: 0.85,
+            score_gap: 0.10,
+            jaccard_threshold: 0.60,
+            exact_cache_ttl_secs: 60,
+            compile: CompileConfig::default(),
+        }
+    }
+}
+
+/// Load workspace configuration from `.brv/engram.toml`.
+///
+/// - Returns defaults if the file is absent (no error, no log noise).
+/// - Logs a WARN and returns defaults if the file exists but fails to parse.
+/// - Never returns `Err` — config loading is infallible from the caller's perspective.
+pub fn load_workspace_config(brv_dir: &Path) -> WorkspaceConfig {
+    let config_path = brv_dir.join("engram.toml");
+
+    if !config_path.exists() {
+        return WorkspaceConfig::default();
+    }
+
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("WARN: failed to read {}: {}", config_path.display(), e);
+            return WorkspaceConfig::default();
+        }
+    };
+
+    let file: ConfigFile = match toml::from_str(&content) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("WARN: failed to parse {}: {}", config_path.display(), e);
+            return WorkspaceConfig::default();
+        }
+    };
+
+    let defaults = WorkspaceConfig::default();
+    WorkspaceConfig {
+        score_threshold: file.query.score_threshold.unwrap_or(defaults.score_threshold),
+        score_gap: file.query.score_gap.unwrap_or(defaults.score_gap),
+        jaccard_threshold: file.query.jaccard_threshold.unwrap_or(defaults.jaccard_threshold),
+        exact_cache_ttl_secs: file.query.exact_cache_ttl_secs.unwrap_or(defaults.exact_cache_ttl_secs),
+        compile: CompileConfig {
+            classify: file.compile.classify.unwrap_or(defaults.compile.classify),
+            max_tokens_per_compile: file
+                .compile
+                .max_tokens_per_compile
+                .unwrap_or(defaults.compile.max_tokens_per_compile),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_absent_file_returns_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brv_dir = tmp.path().join(".brv");
+        fs::create_dir_all(&brv_dir).unwrap();
+
+        let config = load_workspace_config(&brv_dir);
+        let defaults = WorkspaceConfig::default();
+        assert_eq!(config.score_threshold, defaults.score_threshold);
+        assert_eq!(config.score_gap, defaults.score_gap);
+        assert_eq!(config.jaccard_threshold, defaults.jaccard_threshold);
+        assert_eq!(config.exact_cache_ttl_secs, defaults.exact_cache_ttl_secs);
+    }
+
+    #[test]
+    fn test_empty_file_returns_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brv_dir = tmp.path().join(".brv");
+        fs::create_dir_all(&brv_dir).unwrap();
+        fs::write(brv_dir.join("engram.toml"), "").unwrap();
+
+        let config = load_workspace_config(&brv_dir);
+        let defaults = WorkspaceConfig::default();
+        assert_eq!(config.score_threshold, defaults.score_threshold);
+        assert_eq!(config.score_gap, defaults.score_gap);
+        assert_eq!(config.jaccard_threshold, defaults.jaccard_threshold);
+        assert_eq!(config.exact_cache_ttl_secs, defaults.exact_cache_ttl_secs);
+    }
+
+    #[test]
+    fn test_partial_file_overrides_one_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brv_dir = tmp.path().join(".brv");
+        fs::create_dir_all(&brv_dir).unwrap();
+        fs::write(
+            brv_dir.join("engram.toml"),
+            "[query]\nscore_threshold = 0.50\n",
+        )
+        .unwrap();
+
+        let config = load_workspace_config(&brv_dir);
+        assert!((config.score_threshold - 0.50).abs() < f64::EPSILON);
+        // Others remain at defaults
+        let defaults = WorkspaceConfig::default();
+        assert_eq!(config.score_gap, defaults.score_gap);
+        assert_eq!(config.jaccard_threshold, defaults.jaccard_threshold);
+        assert_eq!(config.exact_cache_ttl_secs, defaults.exact_cache_ttl_secs);
+    }
+
+    #[test]
+    fn test_full_file_overrides_all_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brv_dir = tmp.path().join(".brv");
+        fs::create_dir_all(&brv_dir).unwrap();
+        fs::write(
+            brv_dir.join("engram.toml"),
+            r#"[query]
+score_threshold = 0.50
+score_gap = 0.20
+jaccard_threshold = 0.70
+exact_cache_ttl_secs = 120
+"#,
+        )
+        .unwrap();
+
+        let config = load_workspace_config(&brv_dir);
+        assert!((config.score_threshold - 0.50).abs() < f64::EPSILON);
+        assert!((config.score_gap - 0.20).abs() < f64::EPSILON);
+        assert!((config.jaccard_threshold - 0.70).abs() < f64::EPSILON);
+        assert_eq!(config.exact_cache_ttl_secs, 120);
+    }
+
+    #[test]
+    fn test_malformed_toml_returns_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brv_dir = tmp.path().join(".brv");
+        fs::create_dir_all(&brv_dir).unwrap();
+        fs::write(brv_dir.join("engram.toml"), "this is not valid toml {{{}}}").unwrap();
+
+        let config = load_workspace_config(&brv_dir);
+        let defaults = WorkspaceConfig::default();
+        assert_eq!(config.score_threshold, defaults.score_threshold);
+        assert_eq!(config.score_gap, defaults.score_gap);
+        assert_eq!(config.jaccard_threshold, defaults.jaccard_threshold);
+        assert_eq!(config.exact_cache_ttl_secs, defaults.exact_cache_ttl_secs);
+    }
+}

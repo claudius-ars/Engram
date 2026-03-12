@@ -1,4 +1,5 @@
 mod curator_tests;
+mod fingerprint_tests;
 mod indexer_tests;
 mod m4_correctness;
 mod manifest_tests;

@@ -19,6 +19,11 @@ fn make_result(tag: &str) -> QueryResult {
             recency: 1.0,
             caused_by: vec![],
             causes: vec![],
+            keywords: vec![],
+            related: vec![],
+            maturity: 1.0,
+            access_count: 0,
+            update_count: 0,
         }],
         meta: QueryMeta {
             cache_tier: 2,

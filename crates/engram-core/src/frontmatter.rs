@@ -79,4 +79,7 @@ pub struct FactRecord {
 
     // Compiler metadata
     pub warnings: Vec<CompileWarning>,
+
+    /// True if frontmatter explicitly set `factType`. False if defaulted to durable.
+    pub fact_type_explicit: bool,
 }

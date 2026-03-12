@@ -82,6 +82,45 @@ tags: [test, state]
     )
 }
 
+/// A fact WITHOUT explicit factType (will default to durable without --classify).
+pub fn unclassified_fact(title: &str, body: &str) -> String {
+    format!(
+        r#"---
+title: "{title}"
+confidence: 1.0
+importance: 0.8
+recency: 0.9
+tags: [test]
+---
+
+{body}
+"#
+    )
+}
+
+/// Compile with --classify flag.
+pub fn compile_with_classify(root: &Path) -> CompileResult {
+    let bulwark = BulwarkHandle::new_stub();
+    let config = engram_core::CompileConfig {
+        classify: true,
+        ..engram_core::CompileConfig::default()
+    };
+    let result = engram_compiler::compile_context_tree_with_config(root, true, &bulwark, &config);
+    assert!(
+        result.index_error.is_none(),
+        "compile_with_classify: unexpected index error: {:?}",
+        result.index_error
+    );
+    result
+}
+
+/// Compile with --incremental flag.
+pub fn compile_incremental(root: &Path) -> engram_compiler::CompileResult {
+    let bulwark = BulwarkHandle::new_stub();
+    let config = engram_core::CompileConfig::default();
+    engram_compiler::compile_incremental(root, &bulwark, &config)
+}
+
 /// A minimal valid event fact.
 pub fn event_fact(title: &str, body: &str, seq: i64) -> String {
     format!(

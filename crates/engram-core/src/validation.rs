@@ -39,7 +39,7 @@ fn parse_datetime(
         // Check for negative offset — but not the dash in the date portion
         // A timezone offset like -05:00 appears after the time portion
         let after_t = value.find('T').map(|i| &value[i..]);
-        after_t.map_or(false, |s| s.contains('-'))
+        after_t.is_some_and(|s| s.contains('-'))
     };
 
     // Try parsing as naive datetime (no timezone)
@@ -174,6 +174,7 @@ pub fn validate(
     }
 
     // --- Normalize fact_type and collect warnings ---
+    let fact_type_explicit = raw.fact_type.is_some();
     let fact_type = raw.fact_type.unwrap_or_else(|| {
         warnings.push(CompileWarning {
             path: path_display.clone(),
@@ -236,6 +237,7 @@ pub fn validate(
         confidence,
         domain_tags,
         warnings,
+        fact_type_explicit,
     })
 }
 

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use engram_bulwark::BulwarkHandle;
+use engram_core::{load_workspace_config, WorkspaceConfig};
 use engram_query::{ExactCache, FuzzyCache, QueryError, QueryOptions};
 
 use crate::formatter::format_context_block;
@@ -12,6 +13,7 @@ pub struct EngramPlugin {
     fuzzy_cache: FuzzyCache,
     bulwark: BulwarkHandle,
     options: EnrichOptions,
+    config: WorkspaceConfig,
 }
 
 impl EngramPlugin {
@@ -19,11 +21,13 @@ impl EngramPlugin {
     /// root: the workspace root (directory containing .brv/)
     /// options: enrichment options
     pub fn new(root: PathBuf, options: EnrichOptions) -> Self {
+        let config = load_workspace_config(&root.join(".brv"));
         EngramPlugin {
-            root,
-            cache: ExactCache::new(60),
+            cache: ExactCache::new(config.exact_cache_ttl_secs),
             fuzzy_cache: FuzzyCache::new(100),
             bulwark: BulwarkHandle::new_stub(),
+            config,
+            root,
             options,
         }
     }
@@ -45,6 +49,7 @@ impl EngramPlugin {
             &mut self.cache,
             &mut self.fuzzy_cache,
             &self.bulwark,
+            &self.config,
         );
 
         match query_result {

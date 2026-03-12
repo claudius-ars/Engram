@@ -18,6 +18,11 @@ fn make_hit(id: &str, title: Option<&str>, fact_type: &str) -> QueryHit {
         recency: 1.0,
         caused_by: vec![],
         causes: vec![],
+        keywords: vec![],
+        related: vec![],
+        maturity: 1.0,
+        access_count: 0,
+        update_count: 0,
     }
 }
 
@@ -147,4 +152,86 @@ fn test_format_sentinel_stability() {
     assert!(output.contains("## Engram Context (Auto-Enriched)"));
     assert!(output.contains("<!-- engram:start -->"));
     assert!(output.contains("<!-- engram:end -->"));
+}
+
+// === Phase 2 Prompt 6: QueryHit expansion formatter tests ===
+
+// --- Test 9: keywords shown when non-empty ---
+#[test]
+fn test_format_keywords_shown() {
+    let mut hit = make_hit("fact-a", Some("Test"), "durable");
+    hit.keywords = vec!["rust".to_string(), "ownership".to_string()];
+    let result = QueryResult {
+        hits: vec![hit],
+        meta: make_meta(),
+    };
+    let output = format_context_block(&result, &EnrichOptions::default());
+    assert!(output.contains("**Keywords:** rust, ownership"));
+}
+
+// --- Test 10: keywords hidden when empty ---
+#[test]
+fn test_format_keywords_hidden_when_empty() {
+    let result = QueryResult {
+        hits: vec![make_hit("fact-a", Some("Test"), "durable")],
+        meta: make_meta(),
+    };
+    let output = format_context_block(&result, &EnrichOptions::default());
+    assert!(!output.contains("**Keywords:**"));
+}
+
+// --- Test 11: related shown when non-empty ---
+#[test]
+fn test_format_related_shown() {
+    let mut hit = make_hit("fact-a", Some("Test"), "durable");
+    hit.related = vec!["infra/k8s".to_string(), "auth/sso".to_string()];
+    let result = QueryResult {
+        hits: vec![hit],
+        meta: make_meta(),
+    };
+    let output = format_context_block(&result, &EnrichOptions::default());
+    assert!(output.contains("**Related:** infra/k8s, auth/sso"));
+}
+
+// --- Test 12: related hidden when empty ---
+#[test]
+fn test_format_related_hidden_when_empty() {
+    let result = QueryResult {
+        hits: vec![make_hit("fact-a", Some("Test"), "durable")],
+        meta: make_meta(),
+    };
+    let output = format_context_block(&result, &EnrichOptions::default());
+    assert!(!output.contains("**Related:**"));
+}
+
+// --- Test 13: maturity shown when < 1.0 and metadata on ---
+#[test]
+fn test_format_maturity_shown_when_below_one() {
+    let mut hit = make_hit("fact-a", Some("Test"), "durable");
+    hit.maturity = 0.6;
+    let result = QueryResult {
+        hits: vec![hit],
+        meta: make_meta(),
+    };
+    let options = EnrichOptions {
+        include_metadata: true,
+        ..EnrichOptions::default()
+    };
+    let output = format_context_block(&result, &options);
+    assert!(output.contains("**Maturity:** 0.60"));
+}
+
+// --- Test 14: maturity hidden when = 1.0 ---
+#[test]
+fn test_format_maturity_hidden_when_one() {
+    let result = QueryResult {
+        hits: vec![make_hit("fact-a", Some("Test"), "durable")],
+        meta: make_meta(),
+    };
+    let options = EnrichOptions {
+        include_metadata: true,
+        ..EnrichOptions::default()
+    };
+    let output = format_context_block(&result, &options);
+    assert!(!output.contains("**Maturity:**"));
 }

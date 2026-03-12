@@ -2,7 +2,10 @@ pub mod cache;
 pub mod fuzzy_cache;
 pub mod result;
 pub mod searcher;
+pub mod temporal_query;
+pub mod temporal_reader;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Instant;
 
@@ -10,19 +13,19 @@ use chrono::{DateTime, Utc};
 use engram_bulwark::{
     AccessType, AuditEvent, AuditOutcome, BulwarkHandle, PolicyDecision, PolicyRequest,
 };
+use engram_core::WorkspaceConfig;
+
+use temporal_query::{
+    classify_temporal_query, has_temporal_signal, merge_temporal_and_bm25,
+    temporal_record_to_query_hit,
+};
+use temporal_reader::TemporalReader;
 
 pub use cache::ExactCache;
 pub use fuzzy_cache::FuzzyCache;
 pub use result::{QueryHit, QueryMeta, QueryResult};
 pub use searcher::{BM25Searcher, SearchError};
-
-// Score threshold constants — defined here (not searcher.rs) so they can be
-// made configurable per-workspace in a future prompt.
-#[allow(dead_code)]
-const SCORE_THRESHOLD: f64 = 0.85;
-#[allow(dead_code)]
-const SCORE_GAP: f64 = 0.1;
-const JACCARD_THRESHOLD: f64 = 0.6;
+pub use temporal_query::CACHE_TIER_TEMPORAL;
 
 #[derive(Debug, Clone)]
 pub struct QueryOptions {
@@ -86,6 +89,7 @@ pub fn query(
     cache: &mut ExactCache,
     fuzzy_cache: &mut FuzzyCache,
     bulwark: &BulwarkHandle,
+    config: &WorkspaceConfig,
 ) -> Result<QueryResult, QueryError> {
     // 1. Bulwark policy check
     let request = PolicyRequest {
@@ -129,10 +133,10 @@ pub fn query(
         let query_tokens = FuzzyCache::tokenize(query_string);
         if let Some(cached) = fuzzy_cache.get(
             &query_tokens,
-            JACCARD_THRESHOLD,
+            config.jaccard_threshold,
             generation,
             dirty,
-            60,
+            config.exact_cache_ttl_secs,
         ) {
             let mut result = cached.clone();
             result.meta.cache_tier = 1;
@@ -150,17 +154,45 @@ pub fn query(
     let index_dir = root.join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let start = Instant::now();
-    let scored_docs = searcher.search(query_string, &options).map_err(|e| match e {
+    let scored_docs = searcher.search(query_string, &options, config).map_err(|e| match e {
         SearchError::IndexNotFound(_) => QueryError::IndexNotFound,
         other => QueryError::Search(other),
     })?;
+
+    let bm25_hits: Vec<QueryHit> = scored_docs.into_iter().map(|d| d.hit).collect();
+
+    // 7. Tier 2.5: Temporal query (only if temporal signal detected)
+    let (hits, cache_tier) = if has_temporal_signal(query_string) {
+        let parent_index_dir = root.join(".brv").join("index");
+        if let Ok(Some(reader)) = TemporalReader::load(&parent_index_dir) {
+            let pattern = classify_temporal_query(query_string);
+            let now_ts = chrono::Utc::now().timestamp();
+            let temporal_records = reader.tier2_5_search(&pattern, now_ts, generation);
+
+            if !temporal_records.is_empty() {
+                let temporal_hashes: HashSet<u64> =
+                    temporal_records.iter().map(|r| r.source_path_hash).collect();
+                let temporal_hits: Vec<QueryHit> = temporal_records
+                    .iter()
+                    .map(|r| temporal_record_to_query_hit(r))
+                    .collect();
+                let merged = merge_temporal_and_bm25(temporal_hits, &temporal_hashes, bm25_hits);
+                (merged, CACHE_TIER_TEMPORAL)
+            } else {
+                (bm25_hits, 2)
+            }
+        } else {
+            (bm25_hits, 2)
+        }
+    } else {
+        (bm25_hits, 2)
+    };
+
     let query_ms = start.elapsed().as_millis() as u64;
 
-    // 7. Build QueryResult
-    let hits: Vec<QueryHit> = scored_docs.into_iter().map(|d| d.hit).collect();
-
+    // 8. Build QueryResult
     let meta = QueryMeta {
-        cache_tier: 2,
+        cache_tier,
         stale: dirty,
         dirty_since,
         query_ms,
@@ -170,11 +202,11 @@ pub fn query(
 
     let result = QueryResult { hits, meta };
 
-    // 8. Insert into Tier 0 and Tier 1 caches
+    // 9. Insert into Tier 0 and Tier 1 caches
     cache.insert(fingerprint, result.clone(), generation);
     fuzzy_cache.insert(query_string.to_string(), result.clone(), generation);
 
-    // 9. Bulwark audit
+    // 10. Bulwark audit
     bulwark.audit(AuditEvent {
         request,
         decision: PolicyDecision::Allow,
@@ -182,7 +214,7 @@ pub fn query(
         timestamp: Utc::now(),
     });
 
-    // 10. Return
+    // 11. Return
     Ok(result)
 }
 

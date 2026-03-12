@@ -1,0 +1,20 @@
+# Engram workspace configuration
+# Copy this file to .brv/engram.toml and adjust values as needed.
+# All fields are optional — omitted fields use the defaults shown below.
+
+[query]
+# Minimum compound score for a hit to be included in results.
+# Default: 0.85
+# score_threshold = 0.85
+
+# Minimum gap between the top hit and subsequent hits.
+# Default: 0.10
+# score_gap = 0.10
+
+# Jaccard similarity threshold for Tier 1 (fuzzy) cache matching.
+# Default: 0.60
+# jaccard_threshold = 0.60
+
+# Time-to-live in seconds for Tier 0 (exact) cache entries.
+# Default: 60
+# exact_cache_ttl_secs = 60
