@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use engram_core::{FactRecord, FactType};
+use engram_core::{fnv1a_u64, FactRecord, FactType};
 use tantivy::schema::*;
 use tantivy::{doc, Index, Term};
 
@@ -12,7 +12,9 @@ pub const NULL_TIMESTAMP: i64 = i64::MIN;
 /// v2: source_path changed from STORED-only to STRING | STORED to enable
 ///     delete_term() for incremental compilation. Without INDEXED, delete_term()
 ///     silently does nothing.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+/// v3: importance changed to FAST | STORED, access_count changed to FAST | STORED,
+///     added source_path_hash as u64 FAST for O(1) temporal enrichment lookups.
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 const SCHEMA_VERSION_FILE: &str = "engram_schema_version";
 
@@ -54,7 +56,7 @@ pub fn build_schema() -> Schema {
     builder.add_text_field("id", TEXT | STORED);
 
     // FAST fields — column-oriented, used in scoring formula and filtering
-    builder.add_f64_field("importance", FAST);
+    builder.add_f64_field("importance", FAST | STORED);
     builder.add_f64_field("recency", FAST);
     builder.add_f64_field("confidence", FAST);
     builder.add_u64_field("fact_type_int", FAST);
@@ -62,6 +64,7 @@ pub fn build_schema() -> Schema {
     builder.add_i64_field("event_sequence", FAST);
     builder.add_i64_field("created_at_ts", FAST);
     builder.add_i64_field("updated_at_ts", FAST);
+    builder.add_u64_field("source_path_hash", FAST);
 
     // STRING | STORED — exact-match indexed (not tokenized) so that delete_term()
     // works for incremental compilation. STRING = INDEXED without tokenization.
@@ -72,7 +75,7 @@ pub fn build_schema() -> Schema {
     builder.add_text_field("causes", STORED);
     builder.add_text_field("related", STORED);
     builder.add_f64_field("maturity", STORED);
-    builder.add_u64_field("access_count", STORED);
+    builder.add_u64_field("access_count", FAST | STORED);
     builder.add_u64_field("update_count", STORED);
 
     builder.build()
@@ -190,12 +193,15 @@ impl IndexWriter {
         let f_maturity = schema.get_field("maturity").unwrap();
         let f_access_count = schema.get_field("access_count").unwrap();
         let f_update_count = schema.get_field("update_count").unwrap();
+        let f_source_path_hash = schema.get_field("source_path_hash").unwrap();
 
         let mut documents_written = 0usize;
         let mut documents_skipped = 0usize;
 
         for record in records {
             let doc_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let sp = record.source_path.to_string_lossy().to_string();
+                let sp_hash = fnv1a_u64(sp.as_bytes());
                 doc!(
                     f_title => record.title.unwrap_or_default(),
                     f_body => record.body,
@@ -211,7 +217,8 @@ impl IndexWriter {
                     f_event_sequence => record.event_sequence.unwrap_or(NULL_TIMESTAMP),
                     f_created_at_ts => record.created_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
                     f_updated_at_ts => record.updated_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
-                    f_source_path => record.source_path.to_string_lossy().to_string(),
+                    f_source_path => sp,
+                    f_source_path_hash => sp_hash,
                     f_caused_by => serde_json::to_string(&record.caused_by).unwrap_or_default(),
                     f_causes => serde_json::to_string(&record.causes).unwrap_or_default(),
                     f_related => serde_json::to_string(&record.related).unwrap_or_default(),
@@ -261,12 +268,16 @@ pub fn build_document(schema: &Schema, record: FactRecord) -> tantivy::TantivyDo
     let f_created_at_ts = schema.get_field("created_at_ts").unwrap();
     let f_updated_at_ts = schema.get_field("updated_at_ts").unwrap();
     let f_source_path = schema.get_field("source_path").unwrap();
+    let f_source_path_hash = schema.get_field("source_path_hash").unwrap();
     let f_caused_by = schema.get_field("caused_by").unwrap();
     let f_causes = schema.get_field("causes").unwrap();
     let f_related = schema.get_field("related").unwrap();
     let f_maturity = schema.get_field("maturity").unwrap();
     let f_access_count = schema.get_field("access_count").unwrap();
     let f_update_count = schema.get_field("update_count").unwrap();
+
+    let sp = record.source_path.to_string_lossy().to_string();
+    let sp_hash = fnv1a_u64(sp.as_bytes());
 
     doc!(
         f_title => record.title.unwrap_or_default(),
@@ -283,7 +294,8 @@ pub fn build_document(schema: &Schema, record: FactRecord) -> tantivy::TantivyDo
         f_event_sequence => record.event_sequence.unwrap_or(NULL_TIMESTAMP),
         f_created_at_ts => record.created_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
         f_updated_at_ts => record.updated_at.map(|dt| dt.timestamp()).unwrap_or(NULL_TIMESTAMP),
-        f_source_path => record.source_path.to_string_lossy().to_string(),
+        f_source_path => sp,
+        f_source_path_hash => sp_hash,
         f_caused_by => serde_json::to_string(&record.caused_by).unwrap_or_default(),
         f_causes => serde_json::to_string(&record.causes).unwrap_or_default(),
         f_related => serde_json::to_string(&record.related).unwrap_or_default(),

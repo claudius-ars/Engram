@@ -1,3 +1,4 @@
+pub mod access_log_apply;
 pub mod causal_validation;
 pub mod causal_writer;
 pub mod classification_cache;
@@ -16,7 +17,7 @@ pub mod watcher;
 use std::path::Path;
 
 use engram_bulwark::{AccessType, BulwarkHandle, PolicyDecision, PolicyRequest};
-use engram_core::{CausalBuildReport, CompileConfig, CausalValidationWarning};
+use engram_core::{CausalBuildReport, CompileConfig, CausalValidationWarning, OntologyIndex, TagValidation};
 
 pub use fingerprint::{
     compute_changes, detect_rename, load_fingerprints, make_fingerprint, save_fingerprints,
@@ -140,6 +141,28 @@ pub fn compile_context_tree_with_config(
         run_classification_pipeline(&mut parse_result, &index_dir, compile_config);
     }
 
+    // Step 1c: Ontology validation (non-fatal — WARN only)
+    let brv_dir = root.join(".brv");
+    let ws_config = engram_core::load_workspace_config(&brv_dir);
+    let ontology = load_ontology(&brv_dir, &ws_config);
+    if let Some(ref ont) = ontology {
+        if !ont.is_empty() {
+            for record in &parse_result.records {
+                for tag in &record.domain_tags {
+                    if let TagValidation::UnknownTerm { namespace, term } =
+                        ont.validate_tag(tag)
+                    {
+                        eprintln!(
+                            "WARN: fact '{}': domain_tag '{}:{}' not found in \
+                             registered namespace '{}'",
+                            record.id, namespace, term, namespace
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Step 2: Read previous state and previous manifest
     let previous_state = read_state(&index_dir).ok();
     let previous_manifest = manifest::read_manifest_envelope(root).ok();
@@ -171,6 +194,29 @@ pub fn compile_context_tree_with_config(
             (fp.index_source_path.clone(), truncated)
         })
         .collect();
+
+    // Step 2c: Apply access log counts to records (before Tantivy write)
+    let access_log_path = ws_config
+        .access_tracking
+        .access_log
+        .clone()
+        .unwrap_or_else(|| index_dir.join("access.log"));
+    if ws_config.access_tracking.enabled && access_log_path.exists() {
+        let counts = access_log_apply::tally_access_log(&access_log_path, generation);
+        if !counts.is_empty() {
+            let stats = access_log_apply::apply_access_counts(
+                &mut parse_result.records,
+                &counts,
+                ws_config.access_tracking.importance_delta,
+            );
+            if stats.facts_updated > 0 {
+                eprintln!(
+                    "INFO: applied access counts to {} facts (delta={})",
+                    stats.facts_updated, ws_config.access_tracking.importance_delta
+                );
+            }
+        }
+    }
 
     // Step 3: Write Tantivy index
     let records_for_index = parse_result.records.clone();
@@ -252,6 +298,11 @@ pub fn compile_context_tree_with_config(
         ) {
             eprintln!("WARN: failed to write temporal log: {}", e);
         }
+    }
+
+    // Step 4c: Truncate access log after successful index write
+    if ws_config.access_tracking.enabled {
+        access_log_apply::truncate_access_log(&access_log_path);
     }
 
     // Step 5: Write state
@@ -714,6 +765,33 @@ fn run_classification_pipeline(
 
     // Save updated cache
     save_classification_cache(index_dir, &cache);
+}
+
+/// Load ontology from the configured path (or default). Returns None if absent or unparseable.
+fn load_ontology(
+    brv_dir: &std::path::Path,
+    ws_config: &engram_core::WorkspaceConfig,
+) -> Option<OntologyIndex> {
+    let ontology_path = ws_config
+        .ontology
+        .file
+        .clone()
+        .unwrap_or_else(|| brv_dir.join("ontology.json"));
+
+    if !ontology_path.exists() {
+        return None;
+    }
+
+    match OntologyIndex::load(&ontology_path) {
+        Ok(idx) => Some(idx),
+        Err(e) => {
+            eprintln!(
+                "WARN: ontology: failed to load {:?}: {} — ontology disabled",
+                ontology_path, e
+            );
+            None
+        }
+    }
 }
 
 // Re-export key types

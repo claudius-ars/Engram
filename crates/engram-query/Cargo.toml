@@ -14,7 +14,10 @@ serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 bytemuck = { version = "1", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3"
 engram-compiler = { path = "../engram-compiler" }
+mockito = "1"
+tokio = { version = "1", features = ["rt", "macros"] }

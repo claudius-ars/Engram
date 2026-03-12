@@ -1,20 +1,49 @@
 # Engram workspace configuration
 # Copy this file to .brv/engram.toml and adjust values as needed.
-# All fields are optional — omitted fields use the defaults shown below.
+# All sections and keys are optional — defaults are shown.
 
 [query]
 # Minimum compound score for a hit to be included in results.
-# Default: 0.85
 # score_threshold = 0.85
 
 # Minimum gap between the top hit and subsequent hits.
-# Default: 0.10
 # score_gap = 0.10
 
 # Jaccard similarity threshold for Tier 1 (fuzzy) cache matching.
-# Default: 0.60
 # jaccard_threshold = 0.60
 
 # Time-to-live in seconds for Tier 0 (exact) cache entries.
-# Default: 60
 # exact_cache_ttl_secs = 60
+
+# Maximum causal graph traversal depth.
+# causal_max_hops = 3
+
+# Tier 3 LLM synthesis (opt-in, requires ANTHROPIC_API_KEY).
+# tier3_enabled = false
+# tier3_top_n = 5
+# tier3_score_threshold = 0.75
+
+[compile]
+# Enable LLM-based fact classification (requires ANTHROPIC_API_KEY).
+# classify = false
+
+# Maximum estimated tokens to send per compile for classification.
+# max_tokens_per_compile = 10000
+
+[access_tracking]
+# Enable query-time access logging and compile-time count application.
+enabled = true
+
+# Path to the access log file. Default: .brv/index/access.log
+# access_log = ".brv/index/access.log"
+
+# Importance boost per access. Applied during compile.
+importance_delta = 0.001
+
+[ontology]
+# Path to the domain ontology JSON file.
+# When present, enables compile-time tag validation and query-time expansion.
+# file = ".brv/ontology.json"
+
+# Bulwark policy rules live in .brv/bulwark.toml (separate file).
+# See .brv/bulwark.toml.example for policy rule syntax.

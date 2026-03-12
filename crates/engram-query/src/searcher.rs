@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use tantivy::collector::TopDocs;
@@ -6,7 +7,7 @@ use tantivy::schema::{Field, IndexRecordOption, Schema, Value};
 use tantivy::{DocAddress, Index, IndexReader, Searcher, TantivyDocument};
 
 use engram_core::temporal::NULL_TIMESTAMP;
-use engram_core::WorkspaceConfig;
+use engram_core::{OntologyIndex, WorkspaceConfig};
 
 use crate::causal_reader::CausalReader;
 use crate::result::QueryHit;
@@ -103,6 +104,11 @@ struct ResolvedFields {
     f_maturity: Field,
     f_access_count: Field,
     f_update_count: Field,
+    /// FAST field handle for source_path_hash (FNV-1a u64).
+    /// Used with hash_to_doc for O(1) enrichment.
+    /// Phase 4 infrastructure — consumed when enrichment wiring replaces O(N) scan.
+    #[allow(dead_code)]
+    f_source_path_hash: Field,
 }
 
 impl ResolvedFields {
@@ -121,9 +127,14 @@ impl ResolvedFields {
             f_maturity: schema.get_field("maturity").map_err(|e| SearchError::Schema(e.to_string()))?,
             f_access_count: schema.get_field("access_count").map_err(|e| SearchError::Schema(e.to_string()))?,
             f_update_count: schema.get_field("update_count").map_err(|e| SearchError::Schema(e.to_string()))?,
+            f_source_path_hash: schema.get_field("source_path_hash").map_err(|e| SearchError::Schema(e.to_string()))?,
         })
     }
 }
+
+/// Maps source_path_hash (FNV-1a u64) → DocAddress for O(1) temporal
+/// enrichment lookups. Built once when the index is opened.
+pub type DocAddressMap = HashMap<u64, DocAddress>;
 
 /// An opened Tantivy index with resolved schema fields.
 ///
@@ -134,6 +145,11 @@ pub struct OpenIndex {
     index: Index,
     reader: IndexReader,
     fields: ResolvedFields,
+    /// Built at index-open time from the source_path_hash FAST column.
+    /// Maps FNV-1a u64 → DocAddress for O(1) source_path → document lookup.
+    /// Phase 4 infrastructure — consumed when enrichment wiring replaces O(N) scan.
+    #[allow(dead_code)]
+    hash_to_doc: Option<DocAddressMap>,
 }
 
 impl OpenIndex {
@@ -323,6 +339,37 @@ impl OpenIndex {
     }
 }
 
+/// Build a DocAddressMap by scanning the `source_path_hash` FAST field
+/// across all segments. Returns `None` if the column is not available
+/// (e.g., pre-v3 index that hasn't been rebuilt yet).
+fn build_doc_address_map(searcher: &Searcher) -> Option<DocAddressMap> {
+    let mut map = DocAddressMap::new();
+
+    for (segment_ord, segment) in searcher.segment_readers().iter().enumerate() {
+        let fast = segment.fast_fields();
+        let col = match fast.u64("source_path_hash") {
+            Ok(c) => c,
+            Err(_) => return None, // column missing — pre-v3 index
+        };
+
+        let alive = segment.alive_bitset();
+
+        for doc_id in 0..segment.max_doc() {
+            if let Some(bitset) = &alive {
+                if !bitset.is_alive(doc_id) {
+                    continue;
+                }
+            }
+            if let Some(hash) = col.first(doc_id) {
+                let addr = DocAddress::new(segment_ord as u32, doc_id);
+                map.insert(hash, addr);
+            }
+        }
+    }
+
+    Some(map)
+}
+
 impl BM25Searcher {
     pub fn new(index_dir: &Path) -> Self {
         BM25Searcher {
@@ -348,11 +395,13 @@ impl BM25Searcher {
         let schema = index.schema();
         let fields = ResolvedFields::resolve(&schema)?;
         let reader = index.reader()?;
+        let hash_to_doc = build_doc_address_map(&reader.searcher());
 
         Ok(OpenIndex {
             index,
             reader,
             fields,
+            hash_to_doc,
         })
     }
 
@@ -363,9 +412,10 @@ impl BM25Searcher {
         config: &WorkspaceConfig,
         causal_reader: &CausalReader,
         anchor_fact_id: Option<&str>,
+        ontology: Option<&OntologyIndex>,
     ) -> Result<Vec<ScoredDoc>, SearchError> {
         let open = self.open()?;
-        open.search_with(query_string, options, config, causal_reader, anchor_fact_id)
+        open.search_with(query_string, options, config, causal_reader, anchor_fact_id, ontology)
     }
 }
 
@@ -377,8 +427,23 @@ impl OpenIndex {
         config: &WorkspaceConfig,
         causal_reader: &CausalReader,
         anchor_fact_id: Option<&str>,
+        ontology: Option<&OntologyIndex>,
     ) -> Result<Vec<ScoredDoc>, SearchError> {
         let f = &self.fields;
+
+        // Ontology-based query expansion (depth-1, OR semantics)
+        let effective_query = match ontology {
+            Some(ont) if !ont.is_empty() => {
+                let tokens: Vec<&str> = query_string.split_whitespace().collect();
+                let expanded = ont.expand_tokens(&tokens);
+                if expanded.len() > tokens.len() {
+                    expanded.join(" ")
+                } else {
+                    query_string.to_owned()
+                }
+            }
+            _ => query_string.to_owned(),
+        };
 
         // Build query parser with field boosts
         let mut query_parser = QueryParser::for_index(
@@ -393,10 +458,10 @@ impl OpenIndex {
         query_parser.set_field_boost(f.f_id, 1.0);
 
         // Parse query; fall back to term query on title on failure
-        let query = match query_parser.parse_query(query_string) {
+        let query = match query_parser.parse_query(&effective_query) {
             Ok(q) => q,
             Err(_) => {
-                let term = tantivy::Term::from_field_text(f.f_title, query_string);
+                let term = tantivy::Term::from_field_text(f.f_title, &effective_query);
                 Box::new(tantivy::query::TermQuery::new(
                     term,
                     IndexRecordOption::WithFreqsAndPositions,

@@ -2,6 +2,7 @@
 pub enum AccessType {
     Read,
     Write,
+    LlmCall,
 }
 
 #[derive(Debug, Clone)]

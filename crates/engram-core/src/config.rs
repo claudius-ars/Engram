@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -9,6 +9,10 @@ struct ConfigFile {
     query: QuerySection,
     #[serde(default)]
     compile: CompileSection,
+    #[serde(default)]
+    access_tracking: AccessTrackingSection,
+    #[serde(default)]
+    ontology: OntologySection,
 }
 
 /// The `[query]` section of the config file.
@@ -19,6 +23,9 @@ struct QuerySection {
     jaccard_threshold: Option<f64>,
     exact_cache_ttl_secs: Option<u64>,
     causal_max_hops: Option<u8>,
+    tier3_enabled: Option<bool>,
+    tier3_top_n: Option<usize>,
+    tier3_score_threshold: Option<f64>,
 }
 
 /// The `[compile]` section of the config file.
@@ -28,6 +35,27 @@ struct CompileSection {
     max_tokens_per_compile: Option<u32>,
 }
 
+/// The `[access_tracking]` section of the config file.
+#[derive(Debug, Default, Deserialize)]
+struct AccessTrackingSection {
+    enabled: Option<bool>,
+    access_log: Option<String>,
+    importance_delta: Option<f64>,
+}
+
+
+/// The `[ontology]` section of the config file.
+#[derive(Debug, Default, Deserialize)]
+struct OntologySection {
+    file: Option<String>,
+}
+
+/// Ontology configuration.
+#[derive(Debug, Clone, Default)]
+pub struct OntologyConfig {
+    /// Path to the ontology JSON file. Default: `.brv/ontology.json`.
+    pub file: Option<PathBuf>,
+}
 
 /// Compile-time configuration.
 #[derive(Debug, Clone)]
@@ -47,6 +75,48 @@ impl Default for CompileConfig {
     }
 }
 
+/// Access tracking configuration.
+#[derive(Debug, Clone)]
+pub struct AccessTrackingConfig {
+    /// Whether access tracking is enabled. Default: true.
+    pub enabled: bool,
+    /// Path to the access log file. Default: resolved at call site to `.brv/index/access.log`.
+    pub access_log: Option<PathBuf>,
+    /// Importance boost per access. Default: 0.001.
+    pub importance_delta: f64,
+}
+
+impl Default for AccessTrackingConfig {
+    fn default() -> Self {
+        AccessTrackingConfig {
+            enabled: true,
+            access_log: None,
+            importance_delta: 0.001,
+        }
+    }
+}
+
+/// Tier 3 LLM pre-fetch configuration.
+#[derive(Debug, Clone)]
+pub struct Tier3Config {
+    /// Whether Tier 3 LLM synthesis is enabled. Default: false (explicit opt-in).
+    pub enabled: bool,
+    /// Number of top Tier 2 hits to include as context for the LLM. Default: 5.
+    pub top_n: usize,
+    /// Score threshold below which Tier 3 triggers. Default: 0.75.
+    pub score_threshold: f64,
+}
+
+impl Default for Tier3Config {
+    fn default() -> Self {
+        Tier3Config {
+            enabled: false,
+            top_n: 5,
+            score_threshold: 0.75,
+        }
+    }
+}
+
 /// Workspace-level configuration for Engram.
 ///
 /// All fields have sensible defaults matching the Phase 1 hardcoded values.
@@ -60,6 +130,9 @@ pub struct WorkspaceConfig {
     pub exact_cache_ttl_secs: u64,
     pub causal_max_hops: u8,
     pub compile: CompileConfig,
+    pub access_tracking: AccessTrackingConfig,
+    pub tier3: Tier3Config,
+    pub ontology: OntologyConfig,
 }
 
 /// Hard cap for causal max_hops. Values above this are clamped.
@@ -74,6 +147,9 @@ impl Default for WorkspaceConfig {
             exact_cache_ttl_secs: 60,
             causal_max_hops: 3,
             compile: CompileConfig::default(),
+            access_tracking: AccessTrackingConfig::default(),
+            tier3: Tier3Config::default(),
+            ontology: OntologyConfig::default(),
         }
     }
 }
@@ -118,6 +194,7 @@ pub fn load_workspace_config(brv_dir: &Path) -> WorkspaceConfig {
         Some(v) => v,
         None => defaults.causal_max_hops,
     };
+    let at_defaults = AccessTrackingConfig::default();
     WorkspaceConfig {
         score_threshold: file.query.score_threshold.unwrap_or(defaults.score_threshold),
         score_gap: file.query.score_gap.unwrap_or(defaults.score_gap),
@@ -130,6 +207,25 @@ pub fn load_workspace_config(brv_dir: &Path) -> WorkspaceConfig {
                 .compile
                 .max_tokens_per_compile
                 .unwrap_or(defaults.compile.max_tokens_per_compile),
+        },
+        access_tracking: AccessTrackingConfig {
+            enabled: file.access_tracking.enabled.unwrap_or(at_defaults.enabled),
+            access_log: file.access_tracking.access_log.map(PathBuf::from),
+            importance_delta: file
+                .access_tracking
+                .importance_delta
+                .unwrap_or(at_defaults.importance_delta),
+        },
+        tier3: {
+            let t3_defaults = Tier3Config::default();
+            Tier3Config {
+                enabled: file.query.tier3_enabled.unwrap_or(t3_defaults.enabled),
+                top_n: file.query.tier3_top_n.unwrap_or(t3_defaults.top_n),
+                score_threshold: file.query.tier3_score_threshold.unwrap_or(t3_defaults.score_threshold),
+            }
+        },
+        ontology: OntologyConfig {
+            file: file.ontology.file.map(PathBuf::from),
         },
     }
 }

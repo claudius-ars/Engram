@@ -1,3 +1,4 @@
+pub mod access_log;
 pub mod cache;
 pub mod causal_query;
 pub mod causal_reader;
@@ -6,6 +7,7 @@ pub mod result;
 pub mod searcher;
 pub mod temporal_query;
 pub mod temporal_reader;
+pub mod tier3;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -15,7 +17,7 @@ use chrono::{DateTime, Utc};
 use engram_bulwark::{
     AccessType, AuditEvent, AuditOutcome, BulwarkHandle, PolicyDecision, PolicyRequest,
 };
-use engram_core::WorkspaceConfig;
+use engram_core::{OntologyIndex, WorkspaceConfig};
 
 use causal_query::{
     causal_traversal, classify_causal_query, is_causal_query, merge_causal_and_bm25,
@@ -33,6 +35,7 @@ pub use fuzzy_cache::FuzzyCache;
 pub use result::{QueryHit, QueryMeta, QueryResult};
 pub use searcher::{BM25Searcher, OpenIndex, SearchError};
 pub use temporal_query::CACHE_TIER_TEMPORAL;
+pub use tier3::CACHE_TIER_LLM;
 
 #[derive(Debug, Clone)]
 pub struct QueryOptions {
@@ -164,6 +167,21 @@ pub fn query(
         Err(_) => CausalReader::empty(),
     };
 
+    // 6b. Load ontology (once per query session, None if absent)
+    let brv_dir = root.join(".brv");
+    let ontology: Option<OntologyIndex> = {
+        let ontology_path = config
+            .ontology
+            .file
+            .clone()
+            .unwrap_or_else(|| brv_dir.join("ontology.json"));
+        if ontology_path.exists() {
+            OntologyIndex::load(&ontology_path).ok()
+        } else {
+            None
+        }
+    };
+
     // 7. Open Tantivy index (once per query session)
     let index_dir = parent_index_dir.join("tantivy");
     let bm25_searcher = BM25Searcher::new(&index_dir);
@@ -175,7 +193,7 @@ pub fn query(
 
     // 8. Tier 2: BM25 search (first pass: no anchor yet → causal_adj = 1.0 for events)
     let scored_docs = open_index
-        .search_with(query_string, &options, config, &causal_reader, None)
+        .search_with(query_string, &options, config, &causal_reader, None, ontology.as_ref())
         .map_err(|e| match e {
             SearchError::IndexNotFound(_) => QueryError::IndexNotFound,
             other => QueryError::Search(other),
@@ -189,7 +207,7 @@ pub fn query(
     // 10. Re-score with causal anchor if we have one and the graph is non-empty
     let bm25_hits = if anchor_fact_id.is_some() && causal_reader.node_count() > 0 {
         let anchor = anchor_fact_id.as_deref().unwrap();
-        match open_index.search_with(query_string, &options, config, &causal_reader, Some(anchor)) {
+        match open_index.search_with(query_string, &options, config, &causal_reader, Some(anchor), ontology.as_ref()) {
             Ok(docs) => docs.into_iter().map(|d| d.hit).collect(),
             Err(_) => bm25_hits,
         }
@@ -255,6 +273,19 @@ pub fn query(
         (hits_after_causal, cache_tier)
     };
 
+    // 12b. Tier 3: LLM pre-fetch (if enabled and best score below threshold)
+    let (hits, cache_tier) = if config.tier3.enabled {
+        if let Some(synthetic) = tier3::run_tier3(root, query_string, &hits, &config.tier3, bulwark) {
+            let mut merged = vec![synthetic];
+            merged.extend(hits);
+            (merged, tier3::CACHE_TIER_LLM)
+        } else {
+            (hits, cache_tier)
+        }
+    } else {
+        (hits, cache_tier)
+    };
+
     let query_ms = start.elapsed().as_millis() as u64;
 
     // 13. Build QueryResult
@@ -281,7 +312,22 @@ pub fn query(
         timestamp: Utc::now(),
     });
 
-    // 16. Return
+    // 16. Access log — append one entry per hit (non-fatal)
+    if config.access_tracking.enabled {
+        let log_path = config
+            .access_tracking
+            .access_log
+            .clone()
+            .unwrap_or_else(|| root.join(".brv/index/access.log"));
+        access_log::append_access_entries(
+            &log_path,
+            &result.hits,
+            "engram",
+            generation,
+        );
+    }
+
+    // 17. Return
     Ok(result)
 }
 

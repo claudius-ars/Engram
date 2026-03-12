@@ -303,47 +303,142 @@ On read, if `envelope.version != MANIFEST_VERSION`, the reader
 returns `ManifestError::VersionMismatch`. Callers treat this the
 same as a missing manifest — it will be regenerated on next compile.
 
-## Phase 2+ Extension Points
+## Phase 4 Architecture
 
-The following items are explicitly deferred from Phase 1:
+Phase 4 added schema v3, access count write-back, Tier 3 LLM
+pre-fetch, domain ontology, and Bulwark policy types. This section
+documents the key decisions and rationale.
+
+### Non-Reversible Decisions (Phase 4)
+
+**NRD-18: Tier 3 uses blocking HTTP (`reqwest::blocking`).**
+The query pipeline is synchronous. Introducing an async runtime
+solely for one HTTP call adds complexity with no benefit for the
+CLI use case. Switching to async later requires either making the
+full query pipeline async (large refactor) or spinning a tokio
+runtime inside `run_tier3()` (contained but ugly).
+
+**NRD-19: Access count write-back uses pre-write FactRecord mutation.**
+The `body` field is `TEXT`-only in the Tantivy schema — not `STORED`.
+Post-write Tantivy document patching is therefore impossible: you
+cannot reconstruct a document from the index because the body is
+not retrievable. Instead, access counts from the NDJSON access log
+are applied to `FactRecord` structs before they are written to the
+index. This pre-write mutation happens in `compile_context_tree_with_config()`
+at Step 2c, before the Tantivy `IndexWriter::write()` call.
+
+**NRD-20: `access.log` is gitignored; audit log is not.**
+The access log (`.brv/index/access.log`) is an operational artifact
+truncated after each compile — it is gitignored. A future audit log
+(`audit/engram.log`) would be a compliance record: append-only,
+hash-chained, and committed to version control. The two-file pattern
+separates operational state from compliance records.
+
+### Schema v3
+
+`CURRENT_SCHEMA_VERSION = 3`
+
+Schema v3 added two fields beyond the original 21:
+
+| # | Field | Type | Flags | Purpose |
+|---|-------|------|-------|---------|
+| 22 | source_path_hash | u64 | FAST | FNV-1a hash of source_path for O(1) enrichment |
+| 23 | importance | f64 | FAST, STORED | Upgraded from FAST-only to support pre-write mutation |
+
+The `source_path_hash` FAST field and the `DocAddressMap` (`HashMap<u64, DocAddress>`)
+are Phase 4 infrastructure for replacing the O(N) segment scan in
+`enrich_temporal_hit()` with an O(1) column lookup. The map is built
+at index-open time but the enrichment path still uses the O(N) scan.
+The fields carry `#[allow(dead_code)]` with documentation explaining
+their purpose.
+
+### Access Count Write-Back
+
+```
+Query → append to .brv/index/access.log (NDJSON, one entry per hit)
+Compile → tally_access_log() → apply_access_counts() → write Tantivy → truncate log
+```
+
+The access log uses generation-aware filtering: entries from generation
+N-2 or older are skipped during tally at generation N. This prevents
+stale log entries (surviving a failed truncation) from inflating counts.
+
+### Tier 3 LLM Pre-fetch
+
+Tier 3 fires after Tier 2.5b (temporal) when:
+1. `config.tier3.enabled == true` (opt-in)
+2. Best BM25 score < `score_threshold` (0.75 default)
+3. Bulwark allows `AccessType::LlmCall`
+4. `ANTHROPIC_API_KEY` is set
+
+The LLM reads fact bodies from the filesystem (not from Tantivy —
+same reason as NRD-19: body is not STORED). Source files for the
+top-N hits are read, frontmatter stripped, and bodies truncated to
+500 chars each. The synthetic hit has `source_path = "<llm:tier3>"`
+as an unambiguous sentinel.
+
+### Domain Ontology
+
+The ontology subsystem operates at two points:
+
+**Compile time**: Each fact's `domain_tags` are validated against
+registered namespaces. Unknown terms in registered namespaces emit
+a WARN. The fact is always indexed regardless.
+
+**Query time**: Query tokens are expanded depth-1 using parent,
+related, and equivalent terms from the ontology. Expanded tokens
+are joined as a string and passed to Tantivy's `QueryParser` (not
+a manual `BoolQuery`). This works because the QueryParser handles
+multi-token strings with additive scoring — expanded terms increase
+recall without requiring explicit OR clause construction.
+
+All ontology code paths are gated on `ontology.is_some()` and
+`!ontology.is_empty()`. Absent `ontology.json` produces zero
+overhead and byte-for-byte identical results.
+
+### Bulwark Policy Engine
+
+Phase 4 added `AccessType::LlmCall` to the policy type system
+and uses `BulwarkHandle` at three enforcement points:
+- `query()` — checks `AccessType::Read` before any index access
+- `compile_context_tree()` — checks `AccessType::Write` before indexing
+- `tier3::run_tier3()` — checks `AccessType::LlmCall` before API call
+
+The `BulwarkHandle` is still a stub: `new_stub()` allows all,
+`new_denying()` denies all. A real rule-based policy engine is
+deferred to Phase 5.
+
+## Remaining Extension Points
 
 | Item | Current State | Target Phase |
 |---|---|---|
-| Tier 1 TTL | Hardcoded 60s | Phase 2 (configurable) |
-| Cross-file caused_by validation | Not validated | Phase 3 |
-| domain_tags namespace validation | Not validated | Phase 4 |
-| Bulwark real policy engine | Stub (allow-all) | Phase 4 |
-| ExactCache/FuzzyCache thread safety | Single-threaded | Phase 4 |
-| Schema migration logic | Wipe-and-rebuild | Phase 2 |
-| Manifest migration logic | Discard-and-regen | Phase 2 |
-| SCORE_THRESHOLD configurability | Hardcoded 0.85 | Phase 2 |
-| SCORE_GAP configurability | Hardcoded 0.1 | Phase 2 |
-| JACCARD_THRESHOLD configurability | Hardcoded 0.6 | Phase 2 |
-| Incremental indexing | Full rebuild every compile | Phase 2 |
-| Watch mode | Not implemented | Phase 3 |
-| QueryHit field expansion | 5 stored fields not in QueryHit | Phase 2 |
+| Tier 1 TTL | Hardcoded 60s | Phase 5 (configurable) |
+| Bulwark real policy engine | Stub (allow/deny-all) | Phase 5 |
+| ExactCache/FuzzyCache thread safety | Single-threaded | Phase 5 |
+| Schema migration logic | Wipe-and-rebuild | Phase 5 |
+| O(1) temporal enrichment wiring | DocAddressMap built but unused | Phase 5 |
 
 ## Known Limitations
 
-- **Full index rebuild on every compile.** The indexer deletes all
-  documents and re-indexes from scratch. This is O(n) in corpus size
-  and intentional for Phase 1 correctness. Incremental indexing is
-  deferred to Phase 2.
-
-- **No watch mode.** The query engine does not monitor the filesystem
-  for changes. Callers must trigger recompilation explicitly.
+- **O(N) temporal enrichment scan.** The `enrich_temporal_hit()`
+  function scans all segments to find the matching document. The
+  Phase 4 `DocAddressMap` infrastructure exists for an O(1) path
+  but is not yet wired. Acceptable for corpus ≤5,000 facts.
 
 - **FuzzyCache eviction is O(n).** At `max_entries = 100`, the cache
   scans all entries linearly on insert when full. This is acceptable
-  for Phase 1 but should be replaced with LRU in Phase 2 if
-  max_entries increases.
+  but should be replaced with LRU if max_entries increases.
 
 - **Single-threaded caches.** ExactCache and FuzzyCache are not
   `Send` or `Sync`. The OpenClaw plugin owns them in a single
-  thread. Phase 4 must wrap them in `Mutex` or use concurrent maps
-  if multi-threaded access is needed.
+  thread.
 
-- **Body is not retrievable.** The body field is indexed as TEXT-only
-  (no STORED flag) for full-text search. It cannot be returned in
-  query results. This is intentional — body content can be read from
-  the source `.md` file via `source_path`.
+- **Body is not retrievable from Tantivy.** The body field is indexed
+  as TEXT-only (no STORED flag). It cannot be returned in query
+  results. Body content must be read from the source `.md` file via
+  `source_path`. This affects Tier 3 (reads filesystem) and prevents
+  post-write Tantivy document patching (NRD-19).
+
+- **Bulwark is a stub.** The policy engine only supports allow-all
+  and deny-all modes. Rule-based evaluation from `bulwark.toml` is
+  not yet implemented.

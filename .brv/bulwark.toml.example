@@ -1,0 +1,33 @@
+# Engram Bulwark policy configuration
+# Copy to .brv/bulwark.toml to enable access control.
+# Absent file = allow-all (stub mode, no audit log).
+#
+# The Bulwark policy engine evaluates PolicyRequest structs with:
+#   access_type: Read | Write | LlmCall
+#   fact_id:     Optional fact ID being accessed
+#   agent_id:    Optional agent identifier
+#   operation:   String describing the operation (e.g., "query", "compile",
+#                "curate", "tier3_llm_synthesis")
+#
+# Current implementation uses a stub engine:
+#   - BulwarkHandle::new_stub()    → allows all requests
+#   - BulwarkHandle::new_denying() → denies all requests
+#
+# Future phases will support rule-based evaluation from this file.
+# Rule syntax is reserved and subject to change.
+
+# Example rule structure (not yet implemented):
+# [[rules]]
+# description  = "Allow all reads"
+# access_types = ["Read"]
+# action       = "Allow"
+#
+# [[rules]]
+# description  = "Deny LLM calls without explicit opt-in"
+# access_types = ["LlmCall"]
+# action       = "Deny"
+#
+# [[rules]]
+# description  = "Deny everything else"
+# access_types = ["*"]
+# action       = "Deny"

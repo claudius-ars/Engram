@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "namespaces": {
+    "iso16530": {
+      "label": "ISO 16530 Well Integrity",
+      "terms": {
+        "WellIntegrityTest": {
+          "parent":     "ComplianceCheck",
+          "related":    ["WellBarrierTest"],
+          "equivalent": []
+        },
+        "ComplianceCheck": {
+          "parent":     null,
+          "related":    [],
+          "equivalent": []
+        },
+        "WellBarrierTest": {
+          "parent":     "ComplianceCheck",
+          "related":    [],
+          "equivalent": []
+        }
+      }
+    },
+    "osdu": {
+      "label": "Open Subsurface Data Universe"
+    }
+  }
+}

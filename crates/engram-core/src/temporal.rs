@@ -52,15 +52,13 @@ pub struct TemporalRecord {
 const _: () = assert!(std::mem::size_of::<TemporalRecord>() == 64);
 
 /// FNV-1a 64-bit hash. Used for source_path hashing.
+///
+/// Delegates to the canonical implementation in `hash::fnv1a_u64`.
+/// Retained for backward compatibility — new code should use
+/// `engram_core::fnv1a_u64` or `engram_core::hash::fnv1a_u64` directly.
+#[inline]
 pub fn fnv1a_64(data: &[u8]) -> u64 {
-    const OFFSET_BASIS: u64 = 14695981039346656037;
-    const PRIME: u64 = 1099511628211;
-    let mut hash = OFFSET_BASIS;
-    for byte in data {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(PRIME);
-    }
-    hash
+    crate::hash::fnv1a_u64(data)
 }
 
 /// Parse raw bytes into a header and record slice.

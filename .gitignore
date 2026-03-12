@@ -15,3 +15,6 @@
 # Fingerprint files (derived artifact, rebuilt on compile)
 .brv/index/fingerprints.bin
 .brv/index/fingerprints.bin.tmp
+
+# Access log (operational artifact, truncated on compile)
+.brv/index/access.log
