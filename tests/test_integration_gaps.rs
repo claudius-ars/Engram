@@ -3,6 +3,7 @@ mod common;
 
 use engram_bulwark::BulwarkHandle;
 use engram_compiler::compile_context_tree;
+use engram_core::temporal::{parse_temporal_log, EVENT_KIND_CREATED, EVENT_KIND_UPDATED, EVENT_KIND_DELETED};
 use engram_core::WorkspaceConfig;
 use engram_query::{ExactCache, FuzzyCache, QueryOptions};
 
@@ -330,4 +331,164 @@ fn gap_bulwark_denies_both_compile_and_query() {
         &config,
     );
     assert!(result.is_err(), "denying bulwark should block query");
+}
+
+// ============================================================
+// Phase 3 Prompt 8: Temporal Log Backfill — content_hash populated
+// Verifies: manifest entries have non-zero content_hash from BLAKE3 fingerprint.
+// ============================================================
+
+#[test]
+fn backfill_content_hash_populated_from_blake3() {
+    let tmp = temp_workspace();
+    write_fact(
+        tmp.path(),
+        "hash-test.md",
+        &durable_fact("Hash Platypus", "Platypus venom is delivered via ankle spurs."),
+    );
+    compile_clean(tmp.path());
+
+    let manifest = engram_compiler::read_manifest_envelope(tmp.path())
+        .expect("manifest should be readable");
+
+    assert_eq!(manifest.entries.len(), 1);
+    let entry = &manifest.entries[0];
+    assert_ne!(
+        entry.content_hash,
+        [0u8; 16],
+        "content_hash should be non-zero (populated from BLAKE3 fingerprint)"
+    );
+}
+
+// ============================================================
+// Phase 3 Prompt 8: Temporal Log Backfill — Created events on first compile
+// ============================================================
+
+#[test]
+fn backfill_first_compile_emits_created_events() {
+    let tmp = temp_workspace();
+    write_fact(
+        tmp.path(),
+        "alpha.md",
+        &durable_fact("Alpha Axolotl", "Axolotls can regenerate limbs."),
+    );
+    write_fact(
+        tmp.path(),
+        "beta.md",
+        &durable_fact("Beta Bison", "Bison are the largest land animals in North America."),
+    );
+    compile_clean(tmp.path());
+
+    let log_path = tmp.path().join(".brv/index/temporal.log");
+    assert!(log_path.exists(), "temporal.log should be written");
+
+    let data = std::fs::read(&log_path).unwrap();
+    let (header, records) = parse_temporal_log(&data).unwrap();
+
+    assert_eq!(header.record_count, 2, "first compile should emit 2 Created events");
+    for r in records {
+        assert_eq!(r.event_kind, EVENT_KIND_CREATED, "all first-compile events should be Created");
+    }
+}
+
+// ============================================================
+// Phase 3 Prompt 8: Temporal Log Backfill — Updated event on content change
+// ============================================================
+
+#[test]
+fn backfill_updated_event_on_content_change() {
+    let tmp = temp_workspace();
+    write_fact(
+        tmp.path(),
+        "mutable.md",
+        &durable_fact("Mutable Narwhal", "Narwhal tusks are elongated canine teeth."),
+    );
+    compile_clean(tmp.path());
+
+    // Modify the fact content
+    write_fact(
+        tmp.path(),
+        "mutable.md",
+        &durable_fact("Mutable Narwhal", "Narwhal tusks can grow up to 3 meters long and are sensory organs."),
+    );
+    compile_clean(tmp.path());
+
+    let log_path = tmp.path().join(".brv/index/temporal.log");
+    let data = std::fs::read(&log_path).unwrap();
+    let (_, records) = parse_temporal_log(&data).unwrap();
+
+    let updated_count = records.iter().filter(|r| r.event_kind == EVENT_KIND_UPDATED).count();
+    assert!(
+        updated_count >= 1,
+        "second compile with changed content should emit at least one Updated event, got {} Updated out of {} total",
+        updated_count,
+        records.len()
+    );
+}
+
+// ============================================================
+// Phase 3 Prompt 8: Temporal Log Backfill — Deleted event on fact removal
+// ============================================================
+
+#[test]
+fn backfill_deleted_event_on_fact_removal() {
+    let tmp = temp_workspace();
+    write_fact(
+        tmp.path(),
+        "keeper.md",
+        &durable_fact("Keeper Koala", "Koalas sleep up to 22 hours a day."),
+    );
+    write_fact(
+        tmp.path(),
+        "doomed.md",
+        &durable_fact("Doomed Dodo", "The dodo was endemic to Mauritius."),
+    );
+    compile_clean(tmp.path());
+
+    // Remove one fact
+    std::fs::remove_file(tmp.path().join(".brv/context-tree/doomed.md")).unwrap();
+    compile_clean(tmp.path());
+
+    let log_path = tmp.path().join(".brv/index/temporal.log");
+    let data = std::fs::read(&log_path).unwrap();
+    let (_, records) = parse_temporal_log(&data).unwrap();
+
+    let deleted_count = records.iter().filter(|r| r.event_kind == EVENT_KIND_DELETED).count();
+    assert!(
+        deleted_count >= 1,
+        "removing a fact should emit at least one Deleted event, got {} Deleted out of {} total",
+        deleted_count,
+        records.len()
+    );
+}
+
+// ============================================================
+// Phase 3 Prompt 8: Temporal Log Backfill — defensive zero hash
+// Verifies: if a fingerprint is somehow missing, content_hash defaults to zero
+// rather than panicking.
+// ============================================================
+
+#[test]
+fn backfill_defensive_zero_hash_on_missing_fingerprint() {
+    let tmp = temp_workspace();
+    write_fact(
+        tmp.path(),
+        "orphan.md",
+        &durable_fact("Orphan Okapi", "Okapi tongues are long enough to clean their own ears."),
+    );
+    compile_clean(tmp.path());
+
+    // Corrupt the fingerprints file so content_hashes lookup fails
+    let fp_path = tmp.path().join(".brv/index/fingerprints.bin");
+    std::fs::write(&fp_path, b"invalid bincode data").unwrap();
+
+    // Re-compile — should fall back to full rebuild with zero hashes for any
+    // facts whose fingerprints can't be found in the corrupted store
+    let result = compile_clean(tmp.path());
+    assert!(result.index_error.is_none(), "compile should succeed despite corrupted fingerprints");
+
+    // The manifest should still be written — entries may have zero hash
+    let manifest = engram_compiler::read_manifest_envelope(tmp.path())
+        .expect("manifest should be readable after rebuild");
+    assert!(!manifest.entries.is_empty(), "manifest should have entries");
 }

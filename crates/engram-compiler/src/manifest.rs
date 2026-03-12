@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::indexer::NULL_TIMESTAMP;
 
-pub const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 pub struct ManifestEnvelope {
@@ -17,13 +17,14 @@ pub struct ManifestEnvelope {
 pub struct ManifestEntry {
     pub id: String,
     pub source_path: String,
-    pub fact_type: u8,       // 0=durable, 1=state, 2=event
+    pub fact_type: u8,         // 0=durable, 1=state, 2=event
     pub importance: f64,
     pub confidence: f64,
     pub recency: f64,
-    pub created_at_ts: i64,  // NULL_TIMESTAMP if none
-    pub valid_until_ts: i64, // NULL_TIMESTAMP if none
-    pub updated_at_ts: i64,  // NULL_TIMESTAMP if none
+    pub created_at_ts: i64,    // NULL_TIMESTAMP if none
+    pub valid_until_ts: i64,   // NULL_TIMESTAMP if none
+    pub updated_at_ts: i64,    // NULL_TIMESTAMP if none
+    pub content_hash: [u8; 16], // BLAKE3 truncated to 128 bits
 }
 
 pub struct ManifestStats {
@@ -95,6 +96,7 @@ impl ManifestWriter {
                     .updated_at
                     .map(|dt| dt.timestamp())
                     .unwrap_or(NULL_TIMESTAMP),
+                content_hash: [0u8; 16],
             })
             .collect();
 
@@ -105,6 +107,27 @@ impl ManifestWriter {
 
         let bytes =
             bincode::serialize(&envelope).map_err(|e| ManifestError::Bincode(e.to_string()))?;
+
+        let tmp = manifest_tmp_path(&self.root);
+        let dest = manifest_path(&self.root);
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, &dest)?;
+
+        let size_bytes = bytes.len() as u64;
+
+        Ok(ManifestStats {
+            entries_written: envelope.entries.len(),
+            size_bytes,
+        })
+    }
+
+    /// Write a pre-built ManifestEnvelope to disk.
+    pub fn write_envelope(&self, envelope: &ManifestEnvelope) -> Result<ManifestStats, ManifestError> {
+        let index_dir = self.root.join(".brv").join("index");
+        std::fs::create_dir_all(&index_dir)?;
+
+        let bytes =
+            bincode::serialize(envelope).map_err(|e| ManifestError::Bincode(e.to_string()))?;
 
         let tmp = manifest_tmp_path(&self.root);
         let dest = manifest_path(&self.root);
@@ -135,4 +158,19 @@ impl ManifestWriter {
 
 pub fn read_manifest(root: &Path) -> Result<Vec<ManifestEntry>, ManifestError> {
     ManifestWriter::read(root)
+}
+
+/// Read the full manifest envelope. Returns Err on missing file, bad format,
+/// or version mismatch. Callers should treat errors as "no previous manifest".
+pub fn read_manifest_envelope(root: &Path) -> Result<ManifestEnvelope, ManifestError> {
+    let bytes = std::fs::read(manifest_path(root))?;
+    let envelope: ManifestEnvelope =
+        bincode::deserialize(&bytes).map_err(|e| ManifestError::Bincode(e.to_string()))?;
+    if envelope.version != MANIFEST_VERSION {
+        return Err(ManifestError::VersionMismatch {
+            expected: MANIFEST_VERSION,
+            got: envelope.version,
+        });
+    }
+    Ok(envelope)
 }

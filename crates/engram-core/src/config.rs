@@ -18,6 +18,7 @@ struct QuerySection {
     score_gap: Option<f64>,
     jaccard_threshold: Option<f64>,
     exact_cache_ttl_secs: Option<u64>,
+    causal_max_hops: Option<u8>,
 }
 
 /// The `[compile]` section of the config file.
@@ -57,8 +58,12 @@ pub struct WorkspaceConfig {
     pub score_gap: f64,
     pub jaccard_threshold: f64,
     pub exact_cache_ttl_secs: u64,
+    pub causal_max_hops: u8,
     pub compile: CompileConfig,
 }
+
+/// Hard cap for causal max_hops. Values above this are clamped.
+pub const CAUSAL_MAX_HOPS_CAP: u8 = 6;
 
 impl Default for WorkspaceConfig {
     fn default() -> Self {
@@ -67,6 +72,7 @@ impl Default for WorkspaceConfig {
             score_gap: 0.10,
             jaccard_threshold: 0.60,
             exact_cache_ttl_secs: 60,
+            causal_max_hops: 3,
             compile: CompileConfig::default(),
         }
     }
@@ -101,11 +107,23 @@ pub fn load_workspace_config(brv_dir: &Path) -> WorkspaceConfig {
     };
 
     let defaults = WorkspaceConfig::default();
+    let causal_max_hops = match file.query.causal_max_hops {
+        Some(v) if v > CAUSAL_MAX_HOPS_CAP => {
+            eprintln!(
+                "WARN: causal_max_hops={} exceeds cap {}, clamping",
+                v, CAUSAL_MAX_HOPS_CAP
+            );
+            CAUSAL_MAX_HOPS_CAP
+        }
+        Some(v) => v,
+        None => defaults.causal_max_hops,
+    };
     WorkspaceConfig {
         score_threshold: file.query.score_threshold.unwrap_or(defaults.score_threshold),
         score_gap: file.query.score_gap.unwrap_or(defaults.score_gap),
         jaccard_threshold: file.query.jaccard_threshold.unwrap_or(defaults.jaccard_threshold),
         exact_cache_ttl_secs: file.query.exact_cache_ttl_secs.unwrap_or(defaults.exact_cache_ttl_secs),
+        causal_max_hops,
         compile: CompileConfig {
             classify: file.compile.classify.unwrap_or(defaults.compile.classify),
             max_tokens_per_compile: file

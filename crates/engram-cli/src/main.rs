@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use engram_bulwark::BulwarkHandle;
-use engram_core::load_workspace_config;
+use engram_core::{load_workspace_config, CausalValidationWarning};
 use engram_query::{ExactCache, FuzzyCache, QueryError, QueryOptions};
 
 #[derive(Parser)]
@@ -121,6 +121,33 @@ fn main() -> anyhow::Result<()> {
             }
             if let Some(err) = &result.state_error {
                 eprintln!("State error: {}", err);
+            }
+
+            // Print causal graph summary
+            if let Some(report) = &result.causal_report {
+                if report.skipped_unchanged {
+                    println!("Causal graph: skipped (unchanged)");
+                } else {
+                    println!(
+                        "Causal graph: {} nodes, {} edges",
+                        report.node_count, report.edge_count,
+                    );
+                }
+            }
+
+            // Print causal validation warnings
+            for w in &result.causal_warnings {
+                match w {
+                    CausalValidationWarning::DanglingEdge { source_id, target_id } => {
+                        eprintln!("WARN [causal] dangling edge: {} \u{2192} {}", source_id, target_id);
+                    }
+                    CausalValidationWarning::SelfLoop { fact_id } => {
+                        eprintln!("WARN [causal] self-loop: {}", fact_id);
+                    }
+                    CausalValidationWarning::CycleDetected { cycle_ids } => {
+                        eprintln!("WARN [causal] cycle detected: {}", cycle_ids.join(" \u{2192} "));
+                    }
+                }
             }
 
             // Exit with error code if any hard failures occurred

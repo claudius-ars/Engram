@@ -10,9 +10,11 @@ pub const TEMPORAL_VERSION: u32 = 1;
 pub const NULL_TIMESTAMP: i64 = i64::MIN;
 
 /// Event kind discriminants.
+/// 0 = Created, 1 = Updated, 2 = Expired, 3 = Deleted.
 pub const EVENT_KIND_CREATED: u8 = 0;
 pub const EVENT_KIND_UPDATED: u8 = 1;
 pub const EVENT_KIND_EXPIRED: u8 = 2;
+pub const EVENT_KIND_DELETED: u8 = 3;
 
 /// Fact type discriminants (mirrors indexer convention).
 pub const FACT_TYPE_DURABLE: u8 = 0;

@@ -107,12 +107,11 @@ pub fn extract_since_timestamp(query: &str) -> i64 {
     i64::MIN
 }
 
-/// Convert a TemporalRecord to a QueryHit.
+/// Convert a TemporalRecord to a sparse QueryHit.
 ///
-/// // PHASE 2 LIMITATION: Tier 2.5 hits lack title/body/keywords because the
-/// // temporal log stores only temporal metadata (timestamps, hashes, fact type).
-/// // Phase 3 can enrich these hits by looking up source_path from the Tantivy
-/// // index via source_path_hash.
+/// The resulting hit has minimal fields (source_path as `<temporal:hash>`,
+/// no title/tags/keywords). Call `OpenIndex::enrich_temporal_hit()` to
+/// populate the full field set from the Tantivy index.
 pub fn temporal_record_to_query_hit(record: &TemporalRecord) -> QueryHit {
     let fact_type = match record.fact_type {
         FACT_TYPE_DURABLE => "durable",

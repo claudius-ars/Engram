@@ -3,6 +3,7 @@ use std::path::Path;
 use engram_bulwark::BulwarkHandle;
 use engram_core::WorkspaceConfig;
 
+use crate::causal_reader::CausalReader;
 use crate::searcher::{freshness_bonus, BM25Searcher, SearchError};
 use crate::QueryOptions;
 
@@ -55,7 +56,7 @@ fn test_search_no_index() {
     let tmp = tempfile::tempdir().unwrap();
     let index_dir = tmp.path().join("nonexistent");
     let searcher = BM25Searcher::new(&index_dir);
-    let result = searcher.search("test", &QueryOptions::default(), &default_config());
+    let result = searcher.search("test", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None);
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), SearchError::IndexNotFound(_)));
 }
@@ -67,7 +68,7 @@ fn test_search_returns_results() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("Legacy", &QueryOptions::default(), &default_config())
+        .search("Legacy", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
     assert!(!results.is_empty());
     assert!(results[0]
@@ -95,7 +96,7 @@ fn test_compound_scoring() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("aardvark", &QueryOptions::default(), &default_config())
+        .search("aardvark", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(results.len() >= 2);
@@ -133,7 +134,7 @@ fn test_search_max_results() {
         min_score: 0.0,
     };
     let results = searcher
-        .search("zebra", &options, &default_config())
+        .search("zebra", &options, &default_config(), &CausalReader::empty(), None)
         .unwrap();
     assert!(results.len() <= 2);
 }
@@ -144,7 +145,7 @@ fn test_search_empty_query_fallback() {
     let tmp = compile_fixtures(&["valid_legacy.md"]);
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
-    let result = searcher.search("", &QueryOptions::default(), &default_config());
+    let result = searcher.search("", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None);
     assert!(result.is_ok());
 }
 
@@ -168,7 +169,7 @@ fn test_durable_score_ignores_recency() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("platypus architecture", &QueryOptions::default(), &default_config())
+        .search("platypus architecture", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(results.len() >= 2, "should find both durable facts");
@@ -198,7 +199,7 @@ fn test_expired_state_scores_zero() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("narwhal", &QueryOptions::default(), &default_config())
+        .search("narwhal", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty(), "expired fact should still be returned by Tantivy");
@@ -220,7 +221,7 @@ fn test_non_expired_state_scores_nonzero() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("narwhal", &QueryOptions::default(), &default_config())
+        .search("narwhal", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty());
@@ -257,7 +258,7 @@ fn test_fresh_state_scores_higher_than_stale() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("walrus state", &QueryOptions::default(), &default_config())
+        .search("walrus state", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(results.len() >= 2, "should find both state facts");
@@ -294,7 +295,7 @@ fn test_event_score_uses_recency() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("penguin event", &QueryOptions::default(), &default_config())
+        .search("penguin event", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(results.len() >= 2, "should find both event facts");
@@ -331,7 +332,7 @@ fn test_score_threshold_filters_low_scores() {
         ..WorkspaceConfig::default()
     };
     let results = searcher
-        .search("quokka", &QueryOptions::default(), &permissive)
+        .search("quokka", &QueryOptions::default(), &permissive, &CausalReader::empty(), None)
         .unwrap();
     assert!(!results.is_empty(), "permissive threshold should return results");
 
@@ -350,7 +351,7 @@ fn test_score_threshold_filters_low_scores() {
         ..WorkspaceConfig::default()
     };
     let results = searcher
-        .search("quokka", &QueryOptions::default(), &strict)
+        .search("quokka", &QueryOptions::default(), &strict, &CausalReader::empty(), None)
         .unwrap();
     assert!(
         results.is_empty(),
@@ -372,7 +373,7 @@ fn test_queryhit_keywords_surfaced() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("flamingo", &QueryOptions::default(), &default_config())
+        .search("flamingo", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty(), "should find the flamingo fact");
@@ -400,7 +401,7 @@ fn test_queryhit_related_surfaced() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("toucan", &QueryOptions::default(), &default_config())
+        .search("toucan", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty(), "should find the toucan fact");
@@ -419,7 +420,7 @@ fn test_queryhit_maturity_surfaced() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("iguana", &QueryOptions::default(), &default_config())
+        .search("iguana", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty(), "should find the iguana fact");
@@ -442,7 +443,7 @@ fn test_queryhit_counts_default_zero() {
     let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
     let searcher = BM25Searcher::new(&index_dir);
     let results = searcher
-        .search("chameleon", &QueryOptions::default(), &default_config())
+        .search("chameleon", &QueryOptions::default(), &default_config(), &CausalReader::empty(), None)
         .unwrap();
 
     assert!(!results.is_empty(), "should find the chameleon fact");
