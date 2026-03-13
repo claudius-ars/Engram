@@ -110,7 +110,7 @@ pub fn extract_since_timestamp(query: &str) -> i64 {
 /// Convert a TemporalRecord to a sparse QueryHit.
 ///
 /// The resulting hit has minimal fields (source_path as `<temporal:hash>`,
-/// no title/tags/keywords). Call `OpenIndex::enrich_temporal_hit()` to
+/// no title/tags/keywords). Call `OpenIndex::enrich_hit()` to
 /// populate the full field set from the Tantivy index.
 pub fn temporal_record_to_query_hit(record: &TemporalRecord) -> QueryHit {
     let fact_type = match record.fact_type {

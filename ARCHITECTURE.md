@@ -346,11 +346,10 @@ Schema v3 added two fields beyond the original 21:
 | 23 | importance | f64 | FAST, STORED | Upgraded from FAST-only to support pre-write mutation |
 
 The `source_path_hash` FAST field and the `DocAddressMap` (`HashMap<u64, DocAddress>`)
-are Phase 4 infrastructure for replacing the O(N) segment scan in
-`enrich_temporal_hit()` with an O(1) column lookup. The map is built
-at index-open time but the enrichment path still uses the O(N) scan.
-The fields carry `#[allow(dead_code)]` with documentation explaining
-their purpose.
+enable O(1) document lookup in `enrich_hit()`. The map is built per-Searcher
+snapshot at query time (not at index-open time — `DocAddress` values encode
+segment ordinals specific to the Searcher they were built from). A fallback
+O(N) segment scan is preserved for pre-v3 schemas that lack the FAST column.
 
 ### Access Count Write-Back
 
@@ -419,11 +418,6 @@ deferred to Phase 5.
 | O(1) temporal enrichment wiring | DocAddressMap built but unused | Phase 5 |
 
 ## Known Limitations
-
-- **O(N) temporal enrichment scan.** The `enrich_temporal_hit()`
-  function scans all segments to find the matching document. The
-  Phase 4 `DocAddressMap` infrastructure exists for an O(1) path
-  but is not yet wired. Acceptable for corpus ≤5,000 facts.
 
 - **FuzzyCache eviction is O(n).** At `max_entries = 100`, the cache
   scans all entries linearly on insert when full. This is acceptable

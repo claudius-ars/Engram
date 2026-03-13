@@ -16,5 +16,8 @@ pub struct PolicyRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PolicyDecision {
     Allow,
-    Deny { reason: String },
+    Deny {
+        reason: String,
+        rule_name: Option<String>,
+    },
 }

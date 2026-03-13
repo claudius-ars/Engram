@@ -2,7 +2,7 @@ use engram_bulwark::BulwarkHandle;
 use engram_core::temporal::fnv1a_64;
 
 use crate::result::QueryHit;
-use crate::searcher::BM25Searcher;
+use crate::searcher::{build_doc_address_map, BM25Searcher};
 
 /// Helper: compile custom facts from inline content.
 fn compile_custom(facts: &[(&str, &str)]) -> tempfile::TempDir {
@@ -35,15 +35,13 @@ fn make_sparse_temporal_hit(source_path_hash: u64) -> QueryHit {
         causes: vec![],
         keywords: vec![],
         related: vec![],
-        maturity: 0.0,
+        maturity: 1.0,
         access_count: 0,
         update_count: 0,
     }
 }
 
-// --- Test: enrichment of a present fact ---
-// Note: enrichment uses O(N) segment scan (Phase 3 limitation).
-// See enrich_temporal_hit() for the Phase 4 fix path.
+// --- Test: enrichment of a present fact (O(1) path) ---
 #[test]
 fn test_enrich_present_fact() {
     let tmp = compile_custom(&[(
@@ -55,14 +53,16 @@ fn test_enrich_present_fact() {
     let bm25 = BM25Searcher::new(&index_dir);
     let open = bm25.open().unwrap();
 
-    // The compiler stores the absolute path as source_path in Tantivy
+    let searcher = open.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open.f_source_path_hash());
+
     let abs_path = tmp.path().join(".brv").join("context-tree").join("enrich_fact.md");
     let abs_path_str = abs_path.to_string_lossy();
     let hash = fnv1a_64(abs_path_str.as_bytes());
     let sparse = make_sparse_temporal_hit(hash);
     assert!(sparse.source_path.starts_with("<temporal:"));
 
-    let enriched = open.enrich_temporal_hit(sparse);
+    let enriched = open.enrich_hit(sparse, hash_to_doc.as_ref());
 
     // Enriched hit has Tantivy data
     assert_eq!(
@@ -106,12 +106,15 @@ fn test_enrich_deleted_fact() {
     let bm25 = BM25Searcher::new(&index_dir);
     let open = bm25.open().unwrap();
 
+    let searcher = open.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open.f_source_path_hash());
+
     // Use a hash that doesn't match any document
     let nonexistent_hash = fnv1a_64(b"deleted_fact.md");
     let sparse = make_sparse_temporal_hit(nonexistent_hash);
     let original_source_path = sparse.source_path.clone();
 
-    let result = open.enrich_temporal_hit(sparse);
+    let result = open.enrich_hit(sparse, hash_to_doc.as_ref());
 
     // Should return the sparse hit unchanged
     assert_eq!(
@@ -134,21 +137,25 @@ fn test_enrich_malformed_source_path() {
     let bm25 = BM25Searcher::new(&index_dir);
     let open = bm25.open().unwrap();
 
-    // Hit with a non-temporal source_path
+    let searcher = open.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open.f_source_path_hash());
+
+    // Hit with a non-temporal source_path — will try O(1) lookup by hash
     let mut hit = make_sparse_temporal_hit(0);
     hit.source_path = "not-a-temporal-format.md".to_string();
 
-    let result = open.enrich_temporal_hit(hit);
+    let result = open.enrich_hit(hit, hash_to_doc.as_ref());
+    // The hash of "not-a-temporal-format.md" won't match any doc, so returned unchanged
     assert_eq!(
         result.source_path, "not-a-temporal-format.md",
-        "malformed source_path should be returned unchanged"
+        "non-matching source_path should be returned unchanged"
     );
 
     // Hit with wrong-length hex
     let mut hit2 = make_sparse_temporal_hit(0);
     hit2.source_path = "<temporal:abcd>".to_string();
 
-    let result2 = open.enrich_temporal_hit(hit2);
+    let result2 = open.enrich_hit(hit2, hash_to_doc.as_ref());
     assert_eq!(
         result2.source_path, "<temporal:abcd>",
         "short hex should be returned unchanged"
@@ -167,13 +174,16 @@ fn test_enrich_preserves_temporal_score() {
     let bm25 = BM25Searcher::new(&index_dir);
     let open = bm25.open().unwrap();
 
+    let searcher = open.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open.f_source_path_hash());
+
     let abs_path = tmp.path().join(".brv").join("context-tree").join("scored.md");
     let hash = fnv1a_64(abs_path.to_string_lossy().as_bytes());
     let mut sparse = make_sparse_temporal_hit(hash);
     sparse.score = 1.0; // temporal score
     sparse.bm25_score = 0.0;
 
-    let enriched = open.enrich_temporal_hit(sparse);
+    let enriched = open.enrich_hit(sparse, hash_to_doc.as_ref());
 
     assert_eq!(
         enriched.score, 1.0,
@@ -197,10 +207,13 @@ fn test_enrich_fast_field_values() {
     let bm25 = BM25Searcher::new(&index_dir);
     let open = bm25.open().unwrap();
 
+    let searcher = open.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open.f_source_path_hash());
+
     let abs_path = tmp.path().join(".brv").join("context-tree").join("fast_fields.md");
     let hash = fnv1a_64(abs_path.to_string_lossy().as_bytes());
     let sparse = make_sparse_temporal_hit(hash);
-    let enriched = open.enrich_temporal_hit(sparse);
+    let enriched = open.enrich_hit(sparse, hash_to_doc.as_ref());
 
     // FAST fields should match what was compiled
     assert!(
@@ -217,4 +230,31 @@ fn test_enrich_fast_field_values() {
         enriched.fact_type, "event",
         "fact_type should be 'event'"
     );
+}
+
+// --- Test: O(N) fallback when hash_to_doc is None ---
+#[test]
+fn test_enrich_fallback_on_scan() {
+    let tmp = compile_custom(&[(
+        "fallback.md",
+        "---\ntitle: \"Fallback Lemur Fact\"\nfactType: durable\nimportance: 0.7\nconfidence: 0.8\n---\n\nLemur fallback test content.\n",
+    )]);
+
+    let index_dir = tmp.path().join(".brv").join("index").join("tantivy");
+    let bm25 = BM25Searcher::new(&index_dir);
+    let open = bm25.open().unwrap();
+
+    let abs_path = tmp.path().join(".brv").join("context-tree").join("fallback.md");
+    let hash = fnv1a_64(abs_path.to_string_lossy().as_bytes());
+    let sparse = make_sparse_temporal_hit(hash);
+
+    // Pass None for hash_to_doc to force O(N) fallback
+    let enriched = open.enrich_hit(sparse, None);
+
+    assert_eq!(
+        enriched.title.as_deref(),
+        Some("Fallback Lemur Fact"),
+        "O(N) fallback should still enrich the hit"
+    );
+    assert_eq!(enriched.source_path, abs_path.to_string_lossy());
 }

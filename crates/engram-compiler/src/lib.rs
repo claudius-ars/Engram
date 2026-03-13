@@ -88,7 +88,7 @@ pub fn compile_context_tree_with_config(
             operation: "compile".to_string(),
         };
 
-        if let PolicyDecision::Deny { reason } = bulwark.check(&request) {
+        if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
             return CompileResult::denied(reason);
         }
     }
@@ -201,12 +201,42 @@ pub fn compile_context_tree_with_config(
         .access_log
         .clone()
         .unwrap_or_else(|| index_dir.join("access.log"));
-    if ws_config.access_tracking.enabled && access_log_path.exists() {
-        let counts = access_log_apply::tally_access_log(&access_log_path, generation);
-        if !counts.is_empty() {
+    if ws_config.access_tracking.enabled {
+        let current_tally = if access_log_path.exists() {
+            access_log_apply::tally_access_log(&access_log_path, generation)
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        // Read previous cycle's cumulative counts from the committed index
+        let tantivy_dir = index_dir.join("tantivy");
+        let previous_counts = if tantivy_dir.exists() {
+            let schema = crate::indexer::build_schema();
+            let f_source_path_hash = schema.get_field("source_path_hash").ok();
+            let f_access_count = schema.get_field("access_count").ok();
+            match (f_source_path_hash, f_access_count) {
+                (sph, Some(ac)) => {
+                    match tantivy::Index::open_in_dir(&tantivy_dir) {
+                        Ok(idx) => access_log_apply::read_existing_access_counts(
+                            &idx,
+                            &parse_result.records,
+                            sph,
+                            ac,
+                        ),
+                        Err(_) => std::collections::HashMap::new(),
+                    }
+                }
+                _ => std::collections::HashMap::new(),
+            }
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        if !current_tally.is_empty() || !previous_counts.is_empty() {
             let stats = access_log_apply::apply_access_counts(
                 &mut parse_result.records,
-                &counts,
+                &current_tally,
+                &previous_counts,
                 ws_config.access_tracking.importance_delta,
             );
             if stats.facts_updated > 0 {
@@ -364,7 +394,7 @@ pub fn compile_incremental(
         agent_id: None,
         operation: "compile".to_string(),
     };
-    if let PolicyDecision::Deny { reason } = bulwark.check(&request) {
+    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
         return CompileResult::denied(reason);
     }
 

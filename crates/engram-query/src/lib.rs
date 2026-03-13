@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use engram_bulwark::{
-    AccessType, AuditEvent, AuditOutcome, BulwarkHandle, PolicyDecision, PolicyRequest,
+    AccessType, BulwarkHandle, PolicyDecision, PolicyRequest,
 };
 use engram_core::{OntologyIndex, WorkspaceConfig};
 
@@ -33,7 +33,7 @@ pub use cache::ExactCache;
 pub use causal_query::CACHE_TIER_CAUSAL;
 pub use fuzzy_cache::FuzzyCache;
 pub use result::{QueryHit, QueryMeta, QueryResult};
-pub use searcher::{BM25Searcher, OpenIndex, SearchError};
+pub use searcher::{build_doc_address_map, BM25Searcher, OpenIndex, SearchError};
 pub use temporal_query::CACHE_TIER_TEMPORAL;
 pub use tier3::CACHE_TIER_LLM;
 
@@ -108,7 +108,7 @@ pub fn query(
         agent_id: None,
         operation: "query".to_string(),
     };
-    if let PolicyDecision::Deny { reason } = bulwark.check(&request) {
+    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
         return Err(QueryError::PolicyDenied(reason));
     }
 
@@ -122,12 +122,8 @@ pub fn query(
     if let Some(cached) = cache.get(&fingerprint, generation, dirty) {
         let mut result = cached.clone();
         result.meta.cache_tier = 0;
-        bulwark.audit(AuditEvent {
-            request,
-            decision: PolicyDecision::Allow,
-            outcome: AuditOutcome::Success,
-            timestamp: Utc::now(),
-        });
+        let decision = PolicyDecision::Allow;
+        bulwark.audit(&request, &decision, 0);
         return Ok(result);
     }
 
@@ -150,12 +146,8 @@ pub fn query(
         ) {
             let mut result = cached.clone();
             result.meta.cache_tier = 1;
-            bulwark.audit(AuditEvent {
-                request: request.clone(),
-                decision: PolicyDecision::Allow,
-                outcome: AuditOutcome::Success,
-                timestamp: Utc::now(),
-            });
+            let decision = PolicyDecision::Allow;
+            bulwark.audit(&request, &decision, 0);
             return Ok(result);
         }
     }
@@ -190,6 +182,10 @@ pub fn query(
         SearchError::IndexNotFound(_) => QueryError::IndexNotFound,
         other => QueryError::Search(other),
     })?;
+
+    // 7b. Build per-searcher DocAddressMap for O(1) enrichment
+    let searcher = open_index.searcher();
+    let hash_to_doc = build_doc_address_map(&searcher, open_index.f_source_path_hash());
 
     // 8. Tier 2: BM25 search (first pass: no anchor yet → causal_adj = 1.0 for events)
     let scored_docs = open_index
@@ -254,7 +250,7 @@ pub fn query(
                 let temporal_hits: Vec<QueryHit> = temporal_records
                     .iter()
                     .map(|r| temporal_record_to_query_hit(r))
-                    .map(|hit| open_index.enrich_temporal_hit(hit))
+                    .map(|hit| open_index.enrich_hit(hit, hash_to_doc.as_ref()))
                     .collect();
 
                 let merged = merge_temporal_and_bm25(
@@ -305,12 +301,8 @@ pub fn query(
     fuzzy_cache.insert(query_string.to_string(), result.clone(), generation);
 
     // 15. Bulwark audit
-    bulwark.audit(AuditEvent {
-        request,
-        decision: PolicyDecision::Allow,
-        outcome: AuditOutcome::Success,
-        timestamp: Utc::now(),
-    });
+    let decision = PolicyDecision::Allow;
+    bulwark.audit(&request, &decision, 0);
 
     // 16. Access log — append one entry per hit (non-fatal)
     if config.access_tracking.enabled {

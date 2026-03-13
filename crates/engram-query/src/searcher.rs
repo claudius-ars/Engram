@@ -105,10 +105,8 @@ struct ResolvedFields {
     f_access_count: Field,
     f_update_count: Field,
     /// FAST field handle for source_path_hash (FNV-1a u64).
-    /// Used with hash_to_doc for O(1) enrichment.
-    /// Phase 4 infrastructure — consumed when enrichment wiring replaces O(N) scan.
-    #[allow(dead_code)]
-    f_source_path_hash: Field,
+    /// `None` for pre-v3 schemas that lack this column.
+    f_source_path_hash: Option<Field>,
 }
 
 impl ResolvedFields {
@@ -127,13 +125,14 @@ impl ResolvedFields {
             f_maturity: schema.get_field("maturity").map_err(|e| SearchError::Schema(e.to_string()))?,
             f_access_count: schema.get_field("access_count").map_err(|e| SearchError::Schema(e.to_string()))?,
             f_update_count: schema.get_field("update_count").map_err(|e| SearchError::Schema(e.to_string()))?,
-            f_source_path_hash: schema.get_field("source_path_hash").map_err(|e| SearchError::Schema(e.to_string()))?,
+            f_source_path_hash: schema.get_field("source_path_hash").ok(),
         })
     }
 }
 
-/// Maps source_path_hash (FNV-1a u64) → DocAddress for O(1) temporal
-/// enrichment lookups. Built once when the index is opened.
+/// Maps source_path_hash (FNV-1a u64) → DocAddress for O(1) enrichment
+/// lookups. Built per-Searcher snapshot (DocAddress values encode segment
+/// ordinals that are only valid for the Searcher they were built from).
 pub type DocAddressMap = HashMap<u64, DocAddress>;
 
 /// An opened Tantivy index with resolved schema fields.
@@ -145,68 +144,90 @@ pub struct OpenIndex {
     index: Index,
     reader: IndexReader,
     fields: ResolvedFields,
-    /// Built at index-open time from the source_path_hash FAST column.
-    /// Maps FNV-1a u64 → DocAddress for O(1) source_path → document lookup.
-    /// Phase 4 infrastructure — consumed when enrichment wiring replaces O(N) scan.
-    #[allow(dead_code)]
-    hash_to_doc: Option<DocAddressMap>,
 }
 
 impl OpenIndex {
     /// Get the Tantivy `Searcher` for this index snapshot.
-    fn searcher(&self) -> Searcher {
+    pub fn searcher(&self) -> Searcher {
         self.reader.searcher()
     }
 
-    /// Enrich a sparse temporal hit by looking up the matching document
-    /// in the Tantivy index via `source_path_hash`.
+    /// The FAST field handle for `source_path_hash`, if the schema is v3+.
+    pub fn f_source_path_hash(&self) -> Option<Field> {
+        self.fields.f_source_path_hash
+    }
+
+    /// Enrich a sparse hit by looking up the matching document in the
+    /// Tantivy index.
+    ///
+    /// Sentinel-prefix dispatch:
+    /// - `<causal:...>` → return hit unchanged (synthetic causal hit)
+    /// - `<temporal:HASH>` → extract hash, look up document
+    /// - `<llm:...>` → return hit unchanged (synthetic LLM hit)
+    /// - anything else → compute hash from source_path, look up document
     ///
     /// On any failure (malformed source_path, Tantivy error, no matching
     /// document), returns the original hit unchanged. Never returns Err.
-    pub fn enrich_temporal_hit(&self, hit: QueryHit) -> QueryHit {
-        // Parse the hex hash from "<temporal:XXXXXXXXXXXXXXXX>"
-        let hash_hex = match hit.source_path.strip_prefix("<temporal:")
+    pub fn enrich_hit(
+        &self,
+        hit: QueryHit,
+        hash_to_doc: Option<&DocAddressMap>,
+    ) -> QueryHit {
+        // Sentinel dispatch — synthetic hits are returned unchanged
+        if hit.source_path.starts_with("<causal:") || hit.source_path.starts_with("<llm:") {
+            return hit;
+        }
+
+        // Determine the target hash
+        let target_hash = if let Some(inner) = hit
+            .source_path
+            .strip_prefix("<temporal:")
             .and_then(|s| s.strip_suffix('>'))
         {
-            Some(h) if h.len() == 16 => h,
-            _ => return hit, // not a temporal hit or malformed → return unchanged
-        };
-
-        // PHASE 3 LIMITATION: O(N) segment scan.
-        //
-        // Enrichment matches by FNV-1a hash of source_path, but Tantivy's source_path
-        // field stores the string, not the hash. TermQuery requires the exact string —
-        // the hash cannot be inverted. A full segment scan is therefore required.
-        //
-        // PHASE 4 FIX: Add source_path_hash as a u64 FAST field in the Tantivy schema
-        // (schema version bump 2 → 3). The enrichment can then use the column reader
-        // API for an O(1) lookup:
-        //   let col = fast_fields.u64("source_path_hash")?;
-        //   let doc_id = col.iter().position(|h| h == target_hash)?;
-        // This requires a wipe-and-rebuild migration for existing indexes.
-
-        let target_hash = match u64::from_str_radix(hash_hex, 16) {
-            Ok(h) => h,
-            Err(_) => return hit,
+            // Temporal hit: hash is hex-encoded in the sentinel
+            if inner.len() != 16 {
+                return hit; // malformed
+            }
+            match u64::from_str_radix(inner, 16) {
+                Ok(h) => h,
+                Err(_) => return hit,
+            }
+        } else {
+            // Regular hit: compute hash from source_path
+            engram_core::hash::fnv1a_u64(hit.source_path.as_bytes())
         };
 
         let searcher = self.searcher();
 
-        // O(N) scan — acceptable for corpus ≤5,000 facts (Phase 3 target).
-        // See PHASE 3 LIMITATION comment above for the Phase 4 fix path.
-        let doc_count = searcher.num_docs();
-        debug_assert!(
-            doc_count <= 5_000,
-            "enrich_temporal_hit O(N) scan: {} docs exceeds Phase 3 target of 5,000",
-            doc_count
-        );
+        // O(1) path: use the pre-built DocAddressMap
+        if let Some(map) = hash_to_doc {
+            if let Some(&addr) = map.get(&target_hash) {
+                match searcher.doc(addr) {
+                    Ok(doc) => {
+                        return apply_doc_enrichment(
+                            hit, &doc, &self.fields, &searcher, addr,
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "WARN: enrich_hit: searcher.doc() failed for {:016x}: {}",
+                            target_hash, e
+                        );
+                        return hit; // NRD-6: never return Err
+                    }
+                }
+            } else {
+                // Hash not in map — fact was deleted (NRD-17: keep sparse hit)
+                return hit;
+            }
+        }
 
+        // Fallback O(N) scan for pre-v3 schemas without hash_to_doc
         for segment_ord in 0..searcher.segment_readers().len() {
             let segment = searcher.segment_reader(segment_ord as u32);
             let alive_bitset = segment.alive_bitset();
 
             for doc_id in 0..segment.max_doc() {
-                // Skip deleted docs
                 if let Some(bitset) = &alive_bitset {
                     if !bitset.is_alive(doc_id) {
                         continue;
@@ -228,109 +249,9 @@ impl OpenIndex {
                     continue;
                 }
 
-                // Found it — enrich the hit with Tantivy data
-                let id = doc
-                    .get_first(self.fields.f_id)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let title = doc
-                    .get_first(self.fields.f_title)
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .filter(|s| !s.is_empty());
-                let tags: Vec<String> = doc
-                    .get_first(self.fields.f_tags)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .collect();
-                let domain_tags: Vec<String> = doc
-                    .get_first(self.fields.f_domain_tags)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .collect();
-                let keywords: Vec<String> = doc
-                    .get_first(self.fields.f_keywords)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .collect();
-                let caused_by: Vec<String> = doc
-                    .get_first(self.fields.f_caused_by)
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let causes: Vec<String> = doc
-                    .get_first(self.fields.f_causes)
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let related: Vec<String> = doc
-                    .get_first(self.fields.f_related)
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let maturity = doc
-                    .get_first(self.fields.f_maturity)
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(1.0);
-                let access_count = doc
-                    .get_first(self.fields.f_access_count)
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let update_count = doc
-                    .get_first(self.fields.f_update_count)
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-
-                // FAST fields via column reader
-                let importance = read_fast_f64(&searcher, addr, "importance");
-                let confidence = read_fast_f64(&searcher, addr, "confidence");
-                let recency = read_fast_f64(&searcher, addr, "recency");
-                let fact_type_int = read_fast_u64(&searcher, addr, "fact_type_int");
-
-                let fact_type = match fact_type_int {
-                    0 => "durable",
-                    1 => "state",
-                    2 => "event",
-                    _ => "durable",
-                }
-                .to_string();
-
-                // PHASE 4 TODO: access_count should be incremented here to record
-                // that this fact was accessed via the query pipeline. The query read
-                // path (engram-query) cannot write to Tantivy. Phase 4 (Bulwark
-                // integration) is the correct place to implement the write-back via
-                // an append-only access log.
-
-                return QueryHit {
-                    id,
-                    title,
-                    source_path: source_path.to_string(),
-                    tags,
-                    domain_tags,
-                    score: hit.score, // preserve temporal score
-                    bm25_score: hit.bm25_score, // preserve original (0.0)
-                    fact_type,
-                    confidence,
-                    importance,
-                    recency,
-                    caused_by,
-                    causes,
-                    keywords,
-                    related,
-                    maturity,
-                    access_count,
-                    update_count,
-                };
+                return apply_doc_enrichment(
+                    hit, &doc, &self.fields, &searcher, addr,
+                );
             }
         }
 
@@ -339,10 +260,159 @@ impl OpenIndex {
     }
 }
 
-/// Build a DocAddressMap by scanning the `source_path_hash` FAST field
-/// across all segments. Returns `None` if the column is not available
-/// (e.g., pre-v3 index that hasn't been rebuilt yet).
-fn build_doc_address_map(searcher: &Searcher) -> Option<DocAddressMap> {
+/// Apply enrichment from a Tantivy document to a sparse hit.
+///
+/// Only fills empty/zero fields — never overwrites populated data.
+/// Preserves the hit's `score` and `bm25_score`.
+fn apply_doc_enrichment(
+    mut hit: QueryHit,
+    doc: &TantivyDocument,
+    fields: &ResolvedFields,
+    searcher: &Searcher,
+    addr: DocAddress,
+) -> QueryHit {
+    // Overwrite source_path with the real path from the document
+    let real_source_path = doc
+        .get_first(fields.f_source_path)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if !real_source_path.is_empty() {
+        hit.source_path = real_source_path;
+    }
+
+    if hit.id.is_empty() {
+        hit.id = doc
+            .get_first(fields.f_id)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+    }
+
+    if hit.title.is_none() {
+        hit.title = doc
+            .get_first(fields.f_title)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
+    }
+
+    if hit.tags.is_empty() {
+        hit.tags = doc
+            .get_first(fields.f_tags)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+    }
+
+    if hit.domain_tags.is_empty() {
+        hit.domain_tags = doc
+            .get_first(fields.f_domain_tags)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+    }
+
+    if hit.keywords.is_empty() {
+        hit.keywords = doc
+            .get_first(fields.f_keywords)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+    }
+
+    if hit.caused_by.is_empty() {
+        hit.caused_by = doc
+            .get_first(fields.f_caused_by)
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+    }
+
+    if hit.causes.is_empty() {
+        hit.causes = doc
+            .get_first(fields.f_causes)
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+    }
+
+    if hit.related.is_empty() {
+        hit.related = doc
+            .get_first(fields.f_related)
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+    }
+
+    if hit.maturity == 1.0 {
+        hit.maturity = doc
+            .get_first(fields.f_maturity)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+    }
+
+    if hit.access_count == 0 {
+        hit.access_count = doc
+            .get_first(fields.f_access_count)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+    }
+
+    if hit.update_count == 0 {
+        hit.update_count = doc
+            .get_first(fields.f_update_count)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+    }
+
+    // FAST fields — only fill if at default/zero values
+    if hit.importance == 0.0 {
+        hit.importance = read_fast_f64(searcher, addr, "importance");
+    }
+    if hit.confidence == 0.0 {
+        hit.confidence = read_fast_f64(searcher, addr, "confidence");
+    }
+    if hit.recency == 0.0 {
+        hit.recency = read_fast_f64(searcher, addr, "recency");
+    }
+    if hit.fact_type.is_empty() || hit.fact_type == "durable" {
+        let fact_type_int = read_fast_u64(searcher, addr, "fact_type_int");
+        hit.fact_type = match fact_type_int {
+            0 => "durable",
+            1 => "state",
+            2 => "event",
+            _ => "durable",
+        }
+        .to_string();
+    }
+
+    hit
+}
+
+/// Build a DocAddressMap from the current Searcher snapshot.
+///
+/// Scans the `source_path_hash` FAST field across all segments, mapping
+/// each hash to its `DocAddress`. The returned map is only valid for the
+/// lifetime of the `Searcher` it was built from (DocAddress values encode
+/// segment ordinals specific to that snapshot).
+///
+/// Returns `None` if `f_source_path_hash` is `None` (pre-v3 schema) or
+/// if any segment is missing the FAST column.
+pub fn build_doc_address_map(
+    searcher: &Searcher,
+    f_source_path_hash: Option<Field>,
+) -> Option<DocAddressMap> {
+    let _field = f_source_path_hash?;
     let mut map = DocAddressMap::new();
 
     for (segment_ord, segment) in searcher.segment_readers().iter().enumerate() {
@@ -395,13 +465,11 @@ impl BM25Searcher {
         let schema = index.schema();
         let fields = ResolvedFields::resolve(&schema)?;
         let reader = index.reader()?;
-        let hash_to_doc = build_doc_address_map(&reader.searcher());
 
         Ok(OpenIndex {
             index,
             reader,
             fields,
-            hash_to_doc,
         })
     }
 

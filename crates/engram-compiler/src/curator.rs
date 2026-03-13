@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use engram_bulwark::{
-    AccessType, AuditEvent, AuditOutcome, BulwarkHandle, PolicyDecision, PolicyRequest,
+    AccessType, BulwarkHandle, PolicyDecision, PolicyRequest,
 };
 
 use crate::state::{read_state, write_state, IndexState, StateError, COMPILER_VERSION, STATE_VERSION};
@@ -218,7 +218,7 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
         operation: "curate".to_string(),
     };
 
-    if let PolicyDecision::Deny { reason } = bulwark.check(&request) {
+    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
         return Err(CurateError::PolicyDenied(reason));
     }
 
@@ -266,12 +266,8 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
         }
 
         // Audit success
-        bulwark.audit(AuditEvent {
-            request,
-            decision: PolicyDecision::Allow,
-            outcome: AuditOutcome::Success,
-            timestamp: Utc::now(),
-        });
+        let decision = PolicyDecision::Allow;
+        bulwark.audit(&request, &decision, 0);
 
         Ok(CurateResult {
             written_path: output_path,
@@ -283,12 +279,8 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
         spawn_background_compile(root, &index_dir)?;
 
         // Audit success
-        bulwark.audit(AuditEvent {
-            request,
-            decision: PolicyDecision::Allow,
-            outcome: AuditOutcome::Success,
-            timestamp: Utc::now(),
-        });
+        let decision = PolicyDecision::Allow;
+        bulwark.audit(&request, &decision, 0);
 
         Ok(CurateResult {
             written_path: output_path,

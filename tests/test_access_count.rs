@@ -273,31 +273,29 @@ fn access_count_stale_generation_skipped() {
     let injected = format!("{}{}\n", existing, stale_line);
     std::fs::write(&log_path, injected).unwrap();
 
-    // Gen 3: compile → should apply gen=2 entries but skip gen=1 stale entry.
-    // Note: access_count does not accumulate across compiles — each compile
-    // re-parses markdown (access_count=0) and applies only the current log.
-    // So we expect 1 (from the gen=2 entry), NOT 2 (which would require
-    // the stale gen=1 injected entry to also be counted).
+    // Gen 3: compile → reads previous access_count=1 from index,
+    // tallies current log: gen=2 entry counted (1), stale gen=1 entry skipped.
+    // Total = previous(1) + current(1) = 2.
+    // Without stale filtering, the injected gen=1 entry would also be counted,
+    // giving previous(1) + current(2) = 3.
     compile_clean(tmp.path());
 
     cache.invalidate_all();
     fuzzy.invalidate_all();
     let r = query_helper(tmp.path(), "wombat droppings", &mut cache, &mut fuzzy);
     assert!(!r.hits.is_empty(), "should find wombat fact");
-    // The gen=2 entry is counted (1), but the stale gen=1 entry is skipped.
-    // Without stale filtering, this would be 2.
     assert_eq!(
-        r.hits[0].access_count, 1,
-        "stale gen=1 entry should be skipped; only gen=2 entry counted"
+        r.hits[0].access_count, 2,
+        "previous(1) + current(1) = 2; stale gen=1 entry skipped"
     );
 }
 
 // ============================================================
-// Access count reflects only the latest compile cycle's log
+// Access counts accumulate across compile cycles
 // ============================================================
 
 #[test]
-fn access_count_reflects_latest_cycle() {
+fn access_count_cumulative_across_compile_cycles() {
     let tmp = temp_workspace();
 
     write_fact(
@@ -309,21 +307,21 @@ fn access_count_reflects_latest_cycle() {
     // Gen 1: compile
     compile_clean(tmp.path());
 
-    // Query once, compile → access_count = 1
+    // Cycle 1: query once, compile → access_count = 1
     let mut cache = ExactCache::new(60);
     let mut fuzzy = FuzzyCache::new(100);
     let _ = query_helper(tmp.path(), "quoll marsupial", &mut cache, &mut fuzzy);
     compile_clean(tmp.path());
 
-    // Verify access_count = 1 (note: this query also writes to the access log!)
+    // Verify access_count = 1
     cache.invalidate_all();
     fuzzy.invalidate_all();
     let r = query_helper(tmp.path(), "quoll marsupial", &mut cache, &mut fuzzy);
     assert!(!r.hits.is_empty());
-    assert_eq!(r.hits[0].access_count, 1, "first cycle: 1 query → access_count=1");
+    assert_eq!(r.hits[0].access_count, 1, "after cycle 1: access_count=1");
+    let count_after_cycle1 = r.hits[0].access_count;
 
-    // Query twice more → log now has 3 entries (1 verification + 2 explicit)
-    // Each compile re-parses markdown (access_count=0) and applies only the log.
+    // Cycle 2: query twice more (plus the verification query above = 3 new queries)
     for _ in 0..2 {
         cache.invalidate_all();
         fuzzy.invalidate_all();
@@ -331,12 +329,32 @@ fn access_count_reflects_latest_cycle() {
     }
     compile_clean(tmp.path());
 
+    // Verify access_count is cumulative: previous 1 + current 3 = 4
     cache.invalidate_all();
     fuzzy.invalidate_all();
     let r = query_helper(tmp.path(), "quoll marsupial", &mut cache, &mut fuzzy);
     assert!(!r.hits.is_empty());
+    assert!(
+        r.hits[0].access_count >= count_after_cycle1,
+        "access_count must never decrease: {} >= {}",
+        r.hits[0].access_count, count_after_cycle1,
+    );
     assert_eq!(
-        r.hits[0].access_count, 3,
-        "second cycle: 3 queries in log (1 verification + 2 explicit) → access_count=3"
+        r.hits[0].access_count, 4,
+        "cumulative: previous 1 + current 3 (1 verify + 2 explicit) = 4"
+    );
+    let count_after_cycle2 = r.hits[0].access_count;
+
+    // Cycle 3: compile without any new queries (just the verification above)
+    compile_clean(tmp.path());
+
+    cache.invalidate_all();
+    fuzzy.invalidate_all();
+    let r = query_helper(tmp.path(), "quoll marsupial", &mut cache, &mut fuzzy);
+    assert!(!r.hits.is_empty());
+    assert!(
+        r.hits[0].access_count >= count_after_cycle2,
+        "access_count must never decrease across cycles: {} >= {}",
+        r.hits[0].access_count, count_after_cycle2,
     );
 }
