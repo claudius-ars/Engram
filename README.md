@@ -1,6 +1,6 @@
 # Engram
 
-A knowledge compiler and query engine that transforms Markdown files with YAML frontmatter into a BM25-searchable index with multi-tier caching, causal graph traversal, temporal queries, and governance controls.
+A knowledge compiler and query engine designed for AI agent memory that transforms Markdown files with YAML frontmatter into a BM25-searchable index with multi-tier caching, causal graph traversal, temporal queries, and governance controls.
 
 ---
 
@@ -8,7 +8,7 @@ A knowledge compiler and query engine that transforms Markdown files with YAML f
 
 Engram takes a directory of `.md` files (the **context tree**), parses their YAML frontmatter, validates and normalizes the fields, and compiles them into a [Tantivy](https://github.com/quickwit-oss/tantivy) full-text search index. Queries pass through a multi-tier cache pipeline before hitting BM25 direct search, with optional causal graph expansion, temporal filtering, and LLM synthesis.
 
-The system is designed for AI agent memory — facts about the world that agents can query, curate, and reason over. It maintains backward compatibility with the ByteRover `.md` format.
+
 
 ## Architecture
 
