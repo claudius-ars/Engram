@@ -3,21 +3,12 @@
 **/*.rs.bk
 .idea/
 
-# Workspace config (user-specific)
-.brv/engram.toml
+# Engram — derived artifacts (rebuild with engram compile)
+.brv/index/
+.brv/audit/
 
-# Temporal log (derived artifact, rebuilt on compile)
-.brv/index/temporal.log
-
-# Classification cache (derived artifact, rebuilt on compile)
-.brv/index/classification_cache.json
-
-# Fingerprint files (derived artifact, rebuilt on compile)
-.brv/index/fingerprints.bin
-.brv/index/fingerprints.bin.tmp
-
-# Access log (operational artifact, truncated on compile)
-.brv/index/access.log
+# macOS
+.DS_Store
 
 # Eval results (generated at runtime, not committed)
 eval/results/

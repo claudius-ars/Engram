@@ -1,0 +1,6 @@
+[query]
+score_threshold = 0.0
+
+[access_tracking]
+enabled = true
+importance_delta = 0.001
