@@ -121,7 +121,7 @@ the model) to persist knowledge before the session context is lost.
 
 ### On-demand recall (skill)
 
-The `memory-recall` skill lets the model query or curate facts explicitly:
+The memory-recall skill lets the model query or curate facts explicitly:
 
 - **Query**: `engram query --format json --agent claude-code "search terms"`
 - **Save**: `engram curate --sync "declarative fact statement"`
@@ -142,9 +142,8 @@ engram-claudecode/
 ├── scripts/
 │   ├── check_and_compile.sh   # Dirty-index detection + incremental compile
 │   └── format_results.sh      # NDJSON → Markdown formatter
-├── skills/
-│   └── memory-recall/
-│       └── SKILL.md           # On-demand query + curate skill
+├── skill/
+│   └── SKILL.md               # On-demand query + curate skill
 ├── test_hook.sh               # Smoke tests (8 cases)
 └── README.md                  # This file
 ```

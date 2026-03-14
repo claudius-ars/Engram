@@ -16,6 +16,52 @@ new facts for future sessions.
 - A significant architectural decision is made during the session
 - A constraint or convention is discovered that future sessions should know
 - The user says "remember this", "save this", "add this to memory"
+- **You just resolved something non-trivial** — proactively offer
+  (see Proactive Curation Triggers below)
+
+## Proactive Curation Triggers
+
+After producing any of the following, offer to save the result to
+memory WITHOUT waiting to be asked:
+
+**Always offer to curate after:**
+- Resolving a bug or error that took multiple steps to diagnose
+  ("I've fixed the issue — want me to save the root cause and
+  solution to memory?")
+- Making an architectural decision or trade-off during the session
+  ("We decided to use X over Y — should I save this decision and
+  the reasoning?")
+- Discovering a project constraint or convention not previously
+  documented
+  ("I notice the project always does X — want me to add this to
+  the knowledge base?")
+- Writing a non-obvious configuration or setup that would be
+  time-consuming to reconstruct
+  ("This config took some trial and error — want me to save the
+  working setup?")
+- Completing a significant task that produced reusable knowledge
+  ("I've set up the pipeline — want me to document the key
+  decisions for future sessions?")
+
+**How to offer — be specific, not vague:**
+
+✓ "Want me to save this to Engram memory: 'The temporal BM25
+   re-ranking uses TEMPORAL_BOOST = 2.0 to ensure state facts
+   always outrank BM25 results'?"
+
+✗ "Should I save something to memory?" (too vague)
+✗ "I could curate several things from this session..." (too passive)
+
+**If the user says yes:** call `engram curate --sync "..."` immediately
+with a concise, declarative fact statement. Do not ask for further
+confirmation.
+
+**If the user says no or ignores it:** do not ask again for that fact.
+Move on. Do not nag.
+
+**Frequency limit:** offer at most once per significant output block.
+Not after every message — only after outputs that produced genuine
+new knowledge worth preserving across sessions.
 
 ## Querying Memory
 

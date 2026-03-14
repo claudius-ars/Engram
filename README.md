@@ -506,42 +506,6 @@ Tampered entries produce `ChainError::HashMismatch` at the entry following the m
 
 The Tantivy index is a derived artifact — the `.md` source files are the source of truth. The index can be safely deleted and rebuilt with `engram compile`.
 
-## ByteRover Compatibility
-
-Engram accepts ByteRover-format `.md` files without modification. Existing
-ByteRover corpora can be pointed at Engram and compiled directly — no
-frontmatter changes required.
-
-The following field name aliases are supported transparently:
-
-| ByteRover (camelCase) | Engram canonical |
-|-----------------------|-----------------|
-| `factType` | `fact_type` |
-| `causedBy` | `caused_by` |
-| `validUntil` | `valid_until` |
-| `accessCount` | `access_count` |
-| `updateCount` | `update_count` |
-| `eventSequence` | `event_sequence` |
-| `domainTags` | `domain_tags` |
-| `createdAt` | `created_at` |
-| `updatedAt` | `updated_at` |
-
-Both forms are accepted in frontmatter. Engram normalizes to snake_case
-internally.
-
-**What carries over without changes:**
-- Fact content and body text
-- All frontmatter fields listed above
-- Causal relationships (`causedBy` / `caused_by`)
-- Tags, keywords, confidence, importance, and recency weights
-- `validUntil` expiry on state facts
-
-**What does not carry over:**
-- ByteRover query cache entries — Engram builds its own index on first
-  compile; run `engram compile` to populate it
-- Any ByteRover-specific plugin configuration — Engram has its own
-  `engram.toml` format
-
 ## Claude Code Integration
 
 Engram ships with a Claude Code plugin that gives Claude persistent,
@@ -629,6 +593,42 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 The test suite includes 513 tests across 16 integration test files and unit tests in each crate.
+
+## ByteRover Compatibility
+
+Engram accepts ByteRover-format `.md` files without modification. Existing
+ByteRover corpora can be pointed at Engram and compiled directly — no
+frontmatter changes required.
+
+The following field name aliases are supported transparently:
+
+| ByteRover (camelCase) | Engram canonical |
+|-----------------------|-----------------|
+| `factType` | `fact_type` |
+| `causedBy` | `caused_by` |
+| `validUntil` | `valid_until` |
+| `accessCount` | `access_count` |
+| `updateCount` | `update_count` |
+| `eventSequence` | `event_sequence` |
+| `domainTags` | `domain_tags` |
+| `createdAt` | `created_at` |
+| `updatedAt` | `updated_at` |
+
+Both forms are accepted in frontmatter. Engram normalizes to snake_case
+internally.
+
+**What carries over without changes:**
+- Fact content and body text
+- All frontmatter fields listed above
+- Causal relationships (`causedBy` / `caused_by`)
+- Tags, keywords, confidence, importance, and recency weights
+- `validUntil` expiry on state facts
+
+**What does not carry over:**
+- ByteRover query cache entries — Engram builds its own index on first
+  compile; run `engram compile` to populate it
+- Any ByteRover-specific plugin configuration — Engram has its own
+  `engram.toml` format
 
 ## License
 
