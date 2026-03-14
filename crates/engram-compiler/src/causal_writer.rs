@@ -638,6 +638,7 @@ mod tests {
         ];
         let warnings = vec![
             CausalValidationWarning::DanglingEdge {
+                source_path: "a.md".to_string(),
                 source_id: "a".to_string(),
                 target_id: "ghost".to_string(),
             },

@@ -158,8 +158,11 @@ fn main() -> anyhow::Result<()> {
             // Print causal validation warnings
             for w in &result.causal_warnings {
                 match w {
-                    CausalValidationWarning::DanglingEdge { source_id, target_id } => {
-                        eprintln!("WARN [causal] dangling edge: {} \u{2192} {}", source_id, target_id);
+                    CausalValidationWarning::DanglingEdge { source_path, target_id, .. } => {
+                        eprintln!(
+                            "WARN [causal] {}: references unknown fact ID {:?} (no matching .md file found in context tree)",
+                            source_path, target_id
+                        );
                     }
                     CausalValidationWarning::SelfLoop { fact_id } => {
                         eprintln!("WARN [causal] self-loop: {}", fact_id);

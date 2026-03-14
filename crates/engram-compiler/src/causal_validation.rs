@@ -29,6 +29,8 @@ pub fn validate_causal_references(records: &[FactRecord]) -> Vec<CausalValidatio
     for record in records {
         let source = &record.id;
 
+        let src_path = record.source_path.to_string_lossy().to_string();
+
         // Forward declarations: this fact causes these targets
         for target in &record.causes {
             if target == source {
@@ -39,6 +41,7 @@ pub fn validate_causal_references(records: &[FactRecord]) -> Vec<CausalValidatio
             }
             if !known_ids.contains(target.as_str()) {
                 warnings.push(CausalValidationWarning::DanglingEdge {
+                    source_path: src_path.clone(),
                     source_id: source.clone(),
                     target_id: target.clone(),
                 });
@@ -57,6 +60,7 @@ pub fn validate_causal_references(records: &[FactRecord]) -> Vec<CausalValidatio
             }
             if !known_ids.contains(cause.as_str()) {
                 warnings.push(CausalValidationWarning::DanglingEdge {
+                    source_path: src_path.clone(),
                     source_id: cause.clone(),
                     target_id: source.clone(),
                 });
@@ -256,6 +260,7 @@ mod tests {
             CausalValidationWarning::DanglingEdge {
                 source_id,
                 target_id,
+                ..
             } => {
                 assert_eq!(source_id, "a");
                 assert_eq!(target_id, "nonexistent");
@@ -273,6 +278,7 @@ mod tests {
             CausalValidationWarning::DanglingEdge {
                 source_id,
                 target_id,
+                ..
             } => {
                 assert_eq!(source_id, "ghost");
                 assert_eq!(target_id, "b");

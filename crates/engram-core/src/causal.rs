@@ -283,8 +283,10 @@ pub struct CausalBuildReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CausalValidationWarning {
     /// An edge references a fact ID that does not exist in the corpus.
-    /// Contains (source_id, target_id) where one or both are unknown.
+    /// Contains the source file path, the referring fact ID, and the
+    /// unresolved target ID.
     DanglingEdge {
+        source_path: String,
         source_id: String,
         target_id: String,
     },
