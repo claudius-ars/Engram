@@ -137,9 +137,9 @@ Markdown context block with sentinel strings
 | 16 | caused_by | text | STORED | JSON array of upstream fact IDs. |
 | 17 | causes | text | STORED | JSON array of downstream fact IDs. |
 | 18 | related | text | STORED | JSON array of related fact IDs. |
-| 19 | maturity | f64 | STORED | ByteRover maturity score. |
-| 20 | access_count | u64 | STORED | ByteRover access counter. |
-| 21 | update_count | u64 | STORED | ByteRover update counter. |
+| 19 | maturity | f64 | STORED | Maturity score (stored, not used in scoring). |
+| 20 | access_count | u64 | STORED | Access counter. |
+| 21 | update_count | u64 | STORED | Update counter. |
 
 **NULL_TIMESTAMP** = `i64::MIN` — sentinel for missing timestamps.
 Using 0 would conflict with Unix epoch (1970-01-01).
@@ -187,7 +187,7 @@ results that may no longer be authorized).
 ### Durable (factType: durable)
 
 Long-lived knowledge. No expiry. Default type when `factType` is
-omitted (ByteRover compatibility).
+omitted.
 
 Validation: warns if `valid_until` is set (durable facts should
 not expire).
@@ -211,50 +211,6 @@ sequence cannot be ordered).
 Stored as `fact_type_int` FAST field: 0=durable, 1=state, 2=event.
 Read back via segment column reader and converted to string in
 QueryHit.
-
-## ByteRover Compatibility
-
-Engram maintains full backward compatibility with ByteRover-format
-`.md` files. Existing ByteRover corpora work without modification.
-
-### Supported ByteRover Fields
-
-| ByteRover Field | Type | Engram Mapping | Default |
-|---|---|---|---|
-| title | string | title | None |
-| tags | list | tags (space-joined for TEXT index) | [] |
-| keywords | list | keywords (space-joined for TEXT index) | [] |
-| importance | float | importance (FAST f64) | 1.0 |
-| recency | float | recency (FAST f64) | 1.0 |
-| maturity | float | maturity (STORED f64) | 1.0 |
-| accessCount | integer | access_count (STORED u64) | 0 |
-| updateCount | integer | update_count (STORED u64) | 0 |
-| related | list | related (STORED JSON string) | [] |
-
-### camelCase Aliases
-
-ByteRover uses camelCase field names. The serde `#[serde(alias)]`
-attribute handles these transparently:
-
-- `accessCount` → `access_count`
-- `updateCount` → `update_count`
-- `factType` → `fact_type` (Engram-native, also aliased)
-- `eventSequence` → `event_sequence` (Engram-native)
-- `validUntil` → `valid_until` (Engram-native)
-- `createdAt` → `created_at` (Engram-native)
-- `updatedAt` → `updated_at` (Engram-native)
-- `causedBy` → `caused_by` (Engram-native)
-- `domainTags` → `domain_tags` (Engram-native)
-
-### Behavioral Differences
-
-- Missing `factType`: defaults to `durable`
-- Missing `confidence`: defaults to `1.0`
-- Missing `importance`/`recency`: defaults to `1.0`
-- Missing `maturity`: defaults to `1.0`
-- ByteRover `maturity` is stored but not used in compound scoring
-- ByteRover `accessCount`/`updateCount` are stored but not used in
-  compound scoring
 
 ### Fields Stored But Not in QueryHit
 

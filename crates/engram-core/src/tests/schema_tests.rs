@@ -4,10 +4,10 @@ use crate::fact_type::FactType;
 use crate::frontmatter::RawFrontmatter;
 use crate::validation::validate;
 
-/// 1. Legacy ByteRover file (no Engram fields) parses without errors.
+/// 1. Legacy file (no Engram fields) parses without errors.
 ///    Only the expected "fact_type not set" warning should appear.
 #[test]
-fn test_legacy_byterover_file() {
+fn test_legacy_file() {
     let yaml = r#"
 title: "Kubernetes basics"
 tags:

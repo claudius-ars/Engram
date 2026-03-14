@@ -9,4 +9,4 @@ createdAt: "2024-01-10T08:00:00Z"
 ---
 
 ## Raw Concept
-This is a legacy ByteRover file without any Engram-native fields.
+This is a legacy file without any Engram-native fields.

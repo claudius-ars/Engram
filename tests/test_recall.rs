@@ -31,9 +31,9 @@ fn query_helper(
         .expect("query should succeed")
 }
 
-// --- ByteRover fixture content ---
+// --- Legacy format fixture content ---
 
-const BYTEROVER_AUTOSCALER: &str = r#"---
+const LEGACY_AUTOSCALER: &str = r#"---
 title: "Kubernetes Node Autoscaler"
 tags: [infrastructure, kubernetes, autoscaling]
 keywords: [hpa, vpa, cluster-autoscaler]
@@ -46,7 +46,7 @@ The Kubernetes cluster autoscaler adjusts node count based on
 pending pods and resource utilization.
 "#;
 
-const BYTEROVER_NETWORKING: &str = r#"---
+const LEGACY_NETWORKING: &str = r#"---
 title: "Service Mesh Networking"
 tags: [infrastructure, networking, istio]
 keywords: [envoy, sidecar, mtls]
@@ -59,7 +59,7 @@ Istio service mesh provides mTLS, traffic management, and
 observability for microservices communication.
 "#;
 
-const BYTEROVER_LOW_IMPORTANCE: &str = r#"---
+const LEGACY_LOW_IMPORTANCE: &str = r#"---
 title: "Kubernetes Legacy Notes"
 tags: [infrastructure, kubernetes]
 importance: 0.4
@@ -69,7 +69,7 @@ recency: 0.6
 Legacy notes about Kubernetes v1.18 cluster setup procedures.
 "#;
 
-const BYTEROVER_WITH_KEYWORDS: &str = r#"---
+const LEGACY_WITH_KEYWORDS: &str = r#"---
 title: "CI/CD Deployment Rollout"
 tags: [cicd, deployment]
 keywords: [deployment, rollout, canary, bluegreen]
@@ -81,7 +81,7 @@ The deployment pipeline supports canary and blue-green rollout
 strategies with automated health checks.
 "#;
 
-const BYTEROVER_WITH_RELATED: &str = r#"---
+const LEGACY_WITH_RELATED: &str = r#"---
 title: "Database Backup Strategy"
 tags: [database, backup]
 related: ["infra/disaster-recovery", "ops/runbook-backup"]
@@ -93,11 +93,11 @@ PostgreSQL backups run every 6 hours with WAL archiving to S3.
 Point-in-time recovery is available up to 7 days.
 "#;
 
-// --- Test 13: ByteRover durable fact compiles ---
+// --- Test 13: legacy durable fact compiles ---
 #[test]
-fn test_byterover_durable_fact_compiles() {
+fn test_legacy_durable_fact_compiles() {
     let tmp = temp_workspace();
-    write_fact(tmp.path(), "k8s-autoscaler.md", BYTEROVER_AUTOSCALER);
+    write_fact(tmp.path(), "k8s-autoscaler.md", LEGACY_AUTOSCALER);
 
     let result = compile_clean(tmp.path());
     assert_eq!(result.index_stats.as_ref().unwrap().documents_written, 1);
@@ -106,16 +106,16 @@ fn test_byterover_durable_fact_compiles() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy = FuzzyCache::new(100);
     let r = query_helper(tmp.path(), "Kubernetes Node Autoscaler", &mut cache, &mut fuzzy);
-    assert!(!r.hits.is_empty(), "ByteRover fact should be queryable by title");
+    assert!(!r.hits.is_empty(), "legacy format fact should be queryable by title");
 }
 
-// --- Test 14: ByteRover importance/recency preserved ---
+// --- Test 14: legacy importance/recency preserved ---
 #[test]
-fn test_byterover_importance_recency_preserved() {
+fn test_legacy_importance_recency_preserved() {
     let tmp = temp_workspace();
 
-    // ByteRover fact with lower importance/recency
-    write_fact(tmp.path(), "k8s-legacy.md", BYTEROVER_LOW_IMPORTANCE);
+    // Legacy format fact with lower importance/recency
+    write_fact(tmp.path(), "k8s-legacy.md", LEGACY_LOW_IMPORTANCE);
 
     // Engram fact with higher importance/recency, similar content
     write_fact(tmp.path(), "k8s-modern.md",
@@ -139,7 +139,7 @@ Modern Kubernetes cluster setup with autoscaling and GitOps.
     let r = query_helper(tmp.path(), "kubernetes", &mut cache, &mut fuzzy);
 
     assert!(r.hits.len() >= 2, "should find both facts");
-    // The Engram fact with higher importance/recency should rank above the ByteRover fact
+    // The Engram fact with higher importance/recency should rank above the legacy format fact
     assert!(
         r.hits[0].title.as_deref().unwrap_or("").contains("Modern"),
         "higher importance/recency fact should rank first, got: {:?}",
@@ -147,11 +147,11 @@ Modern Kubernetes cluster setup with autoscaling and GitOps.
     );
 }
 
-// --- Test 15: ByteRover tags searchable ---
+// --- Test 15: legacy tags searchable ---
 #[test]
-fn test_byterover_tags_searchable() {
+fn test_legacy_tags_searchable() {
     let tmp = temp_workspace();
-    write_fact(tmp.path(), "k8s-autoscaler.md", BYTEROVER_AUTOSCALER);
+    write_fact(tmp.path(), "k8s-autoscaler.md", LEGACY_AUTOSCALER);
     compile_clean(tmp.path());
 
     let mut cache = ExactCache::new(60);
@@ -160,11 +160,11 @@ fn test_byterover_tags_searchable() {
     assert!(!r.hits.is_empty(), "should find fact via tag 'kubernetes'");
 }
 
-// --- Test 16: ByteRover keywords searchable ---
+// --- Test 16: legacy keywords searchable ---
 #[test]
-fn test_byterover_keywords_searchable() {
+fn test_legacy_keywords_searchable() {
     let tmp = temp_workspace();
-    write_fact(tmp.path(), "cicd-rollout.md", BYTEROVER_WITH_KEYWORDS);
+    write_fact(tmp.path(), "cicd-rollout.md", LEGACY_WITH_KEYWORDS);
     compile_clean(tmp.path());
 
     let mut cache = ExactCache::new(60);
@@ -173,17 +173,17 @@ fn test_byterover_keywords_searchable() {
     assert!(!r.hits.is_empty(), "should find fact via keywords 'rollout deployment'");
 }
 
-// --- Test 17: ByteRover mixed corpus ---
+// --- Test 17: legacy mixed corpus ---
 #[test]
-fn test_byterover_mixed_corpus() {
+fn test_legacy_mixed_corpus() {
     let tmp = temp_workspace();
 
-    // 5 ByteRover facts
-    write_fact(tmp.path(), "brv-1.md", BYTEROVER_AUTOSCALER);
-    write_fact(tmp.path(), "brv-2.md", BYTEROVER_NETWORKING);
-    write_fact(tmp.path(), "brv-3.md", BYTEROVER_LOW_IMPORTANCE);
-    write_fact(tmp.path(), "brv-4.md", BYTEROVER_WITH_KEYWORDS);
-    write_fact(tmp.path(), "brv-5.md", BYTEROVER_WITH_RELATED);
+    // 5 legacy format facts
+    write_fact(tmp.path(), "brv-1.md", LEGACY_AUTOSCALER);
+    write_fact(tmp.path(), "brv-2.md", LEGACY_NETWORKING);
+    write_fact(tmp.path(), "brv-3.md", LEGACY_LOW_IMPORTANCE);
+    write_fact(tmp.path(), "brv-4.md", LEGACY_WITH_KEYWORDS);
+    write_fact(tmp.path(), "brv-5.md", LEGACY_WITH_RELATED);
 
     // 5 Engram facts
     write_fact(tmp.path(), "eng-1.md", &durable_fact("Redis Cache Eviction", "LRU eviction policy with maxmemory configuration."));
@@ -198,9 +198,9 @@ fn test_byterover_mixed_corpus() {
     let mut cache = ExactCache::new(60);
     let mut fuzzy = FuzzyCache::new(100);
 
-    // Query term present only in ByteRover facts
+    // Query term present only in legacy format facts
     let r = query_helper(tmp.path(), "autoscaler cluster", &mut cache, &mut fuzzy);
-    assert!(!r.hits.is_empty(), "ByteRover-only terms should be queryable");
+    assert!(!r.hits.is_empty(), "legacy-only terms should be queryable");
 
     cache.invalidate_all();
     fuzzy.invalidate_all();
@@ -210,11 +210,11 @@ fn test_byterover_mixed_corpus() {
     assert!(!r.hits.is_empty(), "Engram-only terms should be queryable");
 }
 
-// --- Test 18: ByteRover related field preserved ---
+// --- Test 18: legacy related field preserved ---
 #[test]
-fn test_byterover_related_field_preserved() {
+fn test_legacy_related_field_preserved() {
     let tmp = temp_workspace();
-    write_fact(tmp.path(), "db-backup.md", BYTEROVER_WITH_RELATED);
+    write_fact(tmp.path(), "db-backup.md", LEGACY_WITH_RELATED);
     compile_clean(tmp.path());
 
     let mut cache = ExactCache::new(60);
@@ -231,9 +231,9 @@ fn test_byterover_related_field_preserved() {
     );
 }
 
-// --- Test 24: ByteRover full field parity ---
+// --- Test 24: legacy full field parity ---
 #[test]
-fn test_byterover_full_field_parity() {
+fn test_legacy_full_field_parity() {
     let tmp = temp_workspace();
 
     let content = r#"---
@@ -275,7 +275,7 @@ Full parity verification body content.
         hit.importance
     );
 
-    // Confidence defaults to 1.0 (no confidence field in ByteRover format)
+    // Confidence defaults to 1.0 (no confidence field in legacy format)
     assert!(
         (hit.confidence - 1.0).abs() < f64::EPSILON,
         "confidence should default to 1.0, got: {}",
@@ -289,7 +289,7 @@ Full parity verification body content.
         hit.recency
     );
 
-    // Fact type defaults to durable (no factType in ByteRover format)
+    // Fact type defaults to durable (no factType in legacy format)
     assert_eq!(
         hit.fact_type, "durable",
         "fact_type should default to durable"
@@ -302,10 +302,10 @@ Full parity verification body content.
         hit.tags
     );
 
-    // domain_tags is empty (ByteRover format has no domain_tags)
+    // domain_tags is empty (legacy format has no domain_tags)
     assert!(
         hit.domain_tags.is_empty(),
-        "domain_tags should be empty for ByteRover facts, got: {:?}",
+        "domain_tags should be empty for legacy format facts, got: {:?}",
         hit.domain_tags
     );
 }

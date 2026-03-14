@@ -11,7 +11,7 @@ use crate::validation::CompileWarning;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RawFrontmatter {
-    // Legacy ByteRover fields
+    // Legacy fields
     pub title: Option<String>,
     pub tags: Option<Vec<String>>,
     pub keywords: Option<Vec<String>>,
@@ -52,7 +52,7 @@ pub struct FactRecord {
     pub id: String,
     pub source_path: PathBuf,
 
-    // Legacy ByteRover fields (with defaults)
+    // Legacy fields (with defaults)
     pub title: Option<String>,
     pub tags: Vec<String>,
     pub keywords: Vec<String>,

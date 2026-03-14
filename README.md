@@ -33,14 +33,14 @@ Query ──► Bulwark Policy ──► Cache Pipeline ──► BM25 ──►
 ### Crate Dependency Graph
 
 ```
-engram-core          (leaf — schema, parsing, validation)
-engram-bulwark       (leaf — policy engine, audit log)
+engram-core                  (leaf — schema, parsing, validation)
+engram-bulwark               (leaf — policy engine, audit log)
     │                    │
     ▼                    ▼
 engram-compiler ─────────┘  (indexing, compilation, curation)
-    │         │
-    ▼         │
-engram-query ─┘              (search, caching, causal/temporal queries)
+                 │
+                 ▼
+engram-query                 (search, caching, causal/temporal queries)
     │
     ▼
 engram-openclaw              (plugin interface, context formatting)
@@ -93,6 +93,16 @@ engram query "kubernetes deployment strategies"
 ```
 
 Output includes hit count, cache tier, execution time, and ranked results with scores and source paths.
+
+### Audit Verification
+
+```bash
+# Verify the audit log hash chain
+engram query --verify-audit
+
+# Verify a specific audit log file
+engram query --verify-audit --log .brv/audit/engram.log.20240315-120000
+```
 
 ### Curate
 
@@ -236,6 +246,12 @@ max_tokens_per_compile = 10000
 [access_tracking]
 enabled = true
 importance_delta = 0.001
+
+[audit]
+max_log_bytes = 52428800   # 50 MB; set to 0 to disable rotation
+# siem_endpoint  = "https://siem.example.com/ingest"
+# siem_token_env = "SIEM_API_TOKEN"   # env var holding bearer token
+# siem_required  = false              # true = fail startup if SIEM unreachable
 ```
 
 ### Policy Configuration
@@ -274,8 +290,20 @@ Rules are evaluated first-match. If no rule matches, the default is **deny** (fa
 | `access_type` | `"read"`, `"write"`, `"llm_call"`, `"*"` | `"*"` |
 | `agent` | exact string or prefix glob (`"agent-*"`) | `"*"` |
 | `reason` | any string | auto-generated |
+| `operations` | `"query"`, `"compile"`, `"curate"`, `"*"` | `[]` (all) |
+| `domain_tags_allow` | list of glob patterns | `[]` (no restriction) |
+| `domain_tags_deny` | list of glob patterns | `[]` (no exclusions) |
+| `fact_types` | `"durable"`, `"state"`, `"event"`, `"*"` | `[]` (all) |
 
-The policy file is hot-reloaded every 30 seconds. Changes take effect without restarting.
+**Rule matching semantics:** A rule matches only when all specified
+conditions hold. Empty lists mean no restriction on that dimension.
+`domain_tags_deny` patterns cause a rule to be skipped (not a terminal
+deny) — the next rule in declaration order then evaluates. No match →
+deny (fail-closed).
+
+The policy file is hot-reloaded every 30 seconds. On Unix, sending
+`SIGHUP` to the process triggers an immediate reload. Changes take
+effect without restarting.
 
 ### Domain Ontology
 
@@ -304,6 +332,7 @@ Reference it in `engram.toml`:
 ```toml
 [ontology]
 file = ".brv/ontology.json"
+expansion_depth = 1          # 0 = no expansion; 1 = direct neighbors (default); max = 3
 ```
 
 At compile time, `domain_tags` are validated against registered namespaces. At query time, tokens are expanded depth-1 using parent, related, and equivalent terms.
@@ -335,10 +364,6 @@ let count = verify_audit_chain(Path::new(".brv/audit/engram.log"))?;
 
 Tampered entries produce `ChainError::HashMismatch` at the entry following the modification.
 
-## ByteRover Compatibility
-
-Engram maintains full backward compatibility with ByteRover-format `.md` files. Existing ByteRover corpora work without modification. The `camelCase` field aliases (`accessCount`, `updateCount`, `factType`, etc.) are handled transparently via serde aliases.
-
 ## Directory Structure
 
 ```
@@ -351,7 +376,7 @@ Engram maintains full backward compatibility with ByteRover-format `.md` files. 
 │   ├── state              # JSON with generation counter and dirty flag
 │   ├── access.log         # NDJSON access log (truncated on compile)
 │   ├── temporal.log        # Temporal backfill log
-│   └── causal/            # Causal graph index
+│   ├── causal.csr         # Binary causal graph (derived artifact)
 ├── audit/
 │   └── engram.log         # Append-only audit log with hash chain
 ├── engram.toml            # Workspace configuration
@@ -359,6 +384,42 @@ Engram maintains full backward compatibility with ByteRover-format `.md` files. 
 ```
 
 The Tantivy index is a derived artifact — the `.md` source files are the source of truth. The index can be safely deleted and rebuilt with `engram compile`.
+
+## ByteRover Compatibility
+
+Engram accepts ByteRover-format `.md` files without modification. Existing
+ByteRover corpora can be pointed at Engram and compiled directly — no
+frontmatter changes required.
+
+The following field name aliases are supported transparently:
+
+| ByteRover (camelCase) | Engram canonical |
+|-----------------------|-----------------|
+| `factType` | `fact_type` |
+| `causedBy` | `caused_by` |
+| `validUntil` | `valid_until` |
+| `accessCount` | `access_count` |
+| `updateCount` | `update_count` |
+| `eventSequence` | `event_sequence` |
+| `domainTags` | `domain_tags` |
+| `createdAt` | `created_at` |
+| `updatedAt` | `updated_at` |
+
+Both forms are accepted in frontmatter. Engram normalizes to snake_case
+internally.
+
+**What carries over without changes:**
+- Fact content and body text
+- All frontmatter fields listed above
+- Causal relationships (`causedBy` / `caused_by`)
+- Tags, keywords, confidence, importance, and recency weights
+- `validUntil` expiry on state facts
+
+**What does not carry over:**
+- ByteRover query cache entries — Engram builds its own index on first
+  compile; run `engram compile` to populate it
+- Any ByteRover-specific plugin configuration — Engram has its own
+  `engram.toml` format
 
 ## Testing
 
@@ -375,7 +436,7 @@ cargo test --test test_audit_chain
 cargo clippy --all-targets -- -D warnings
 ```
 
-The test suite includes 476 tests across 10 integration test files and unit tests in each crate.
+The test suite includes 513 tests across 16 integration test files and unit tests in each crate.
 
 ## License
 
