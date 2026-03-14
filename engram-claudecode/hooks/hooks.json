@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/engram-claudecode/hooks/user_prompt_submit.sh"
+            "command": "/Users/bpolania/Documents/GitHub/engram/engram-claudecode/hooks/user_prompt_submit.sh"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/engram-claudecode/hooks/session_end.sh"
+            "command": "/Users/bpolania/Documents/GitHub/engram/engram-claudecode/hooks/session_end.sh"
           }
         ]
       }

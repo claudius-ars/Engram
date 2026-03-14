@@ -8,7 +8,7 @@ pub enum AccessType {
 #[derive(Debug, Clone)]
 pub struct PolicyRequest {
     pub access_type: AccessType,
-    pub fact_id: Option<String>,
+    pub fact_ids: Vec<String>,
     pub agent_id: Option<String>,
     pub operation: String,
     pub domain_tags: Vec<String>,

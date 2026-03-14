@@ -107,21 +107,21 @@ pub fn query(
     bulwark: &BulwarkHandle,
     config: &WorkspaceConfig,
 ) -> Result<QueryResult, QueryError> {
-    // 1. Bulwark policy check
-    let request = PolicyRequest {
+    // 1. Bulwark policy check (pre-query — fact_ids populated after results)
+    let pre_request = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some(options.agent_id.clone()),
         operation: "query".to_string(),
         domain_tags: options.domain_tags.clone(),
-        fact_types: vec![], // fact type unknown at query time; enforcement requires curate scope
+        fact_types: vec![],
     };
     let t0 = std::time::Instant::now();
-    let decision = bulwark.check(&request);
+    let decision = bulwark.check(&pre_request);
     let duration_ms = t0.elapsed().as_millis() as u64;
-    bulwark.audit(&request, &decision, duration_ms);
-    if let PolicyDecision::Deny { reason, .. } = decision {
-        return Err(QueryError::PolicyDenied(reason));
+    if let PolicyDecision::Deny { reason, .. } = &decision {
+        bulwark.audit(&pre_request, &decision, duration_ms);
+        return Err(QueryError::PolicyDenied(reason.clone()));
     }
 
     // 2. Read state
@@ -304,7 +304,24 @@ pub fn query(
 
     let result = QueryResult { hits, meta };
 
-    // 14. Insert into Tier 0 and Tier 1 caches
+    // 14. Post-query audit with fact_ids (top 5)
+    let audit_fact_ids: Vec<String> = result.hits.iter().take(5).map(|hit| {
+        std::path::Path::new(&hit.source_path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    }).collect();
+    let post_request = PolicyRequest {
+        access_type: AccessType::Read,
+        fact_ids: audit_fact_ids,
+        agent_id: Some(options.agent_id.clone()),
+        operation: "query".to_string(),
+        domain_tags: options.domain_tags.clone(),
+        fact_types: vec![],
+    };
+    bulwark.audit(&post_request, &decision, duration_ms);
+
+    // 15. Insert into Tier 0 and Tier 1 caches
     cache.insert(fingerprint, result.clone(), generation);
     fuzzy_cache.insert(query_string.to_string(), result.clone(), generation);
 

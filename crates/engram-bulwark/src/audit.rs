@@ -155,7 +155,7 @@ impl AuditWriter {
             agent_id: request.agent_id.clone().unwrap_or_default(),
             operation: request.operation.clone(),
             access_type: access_type_str.to_string(),
-            fact_ids: request.fact_id.iter().cloned().collect(),
+            fact_ids: request.fact_ids.clone(),
             domain_tags: request.domain_tags.clone(),
             decision: decision_str,
             reason,

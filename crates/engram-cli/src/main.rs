@@ -23,6 +23,9 @@ enum Commands {
         /// Use incremental compilation (reindex only changed files)
         #[arg(long)]
         incremental: bool,
+        /// Agent ID for Bulwark policy evaluation (default: "cli")
+        #[arg(long, default_value = "cli")]
+        agent: String,
     },
     /// Curate and summarize memory entries
     Curate {
@@ -31,6 +34,9 @@ enum Commands {
         sync: bool,
         /// Summary text
         summary: String,
+        /// Agent ID for Bulwark policy evaluation (default: "cli")
+        #[arg(long, default_value = "cli")]
+        agent: String,
     },
     /// Query the memory index
     Query {
@@ -74,7 +80,8 @@ fn main() -> anyhow::Result<()> {
     let mut fuzzy_cache = FuzzyCache::new(100);
 
     match cli.command {
-        Commands::Compile { watch, classify, incremental } => {
+        Commands::Compile { watch, classify, incremental, agent } => {
+            std::env::set_var("ENGRAM_AGENT_ID", &agent);
             if watch {
                 return engram_compiler::watcher::run_watch(&root, &config);
             }
@@ -184,7 +191,8 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Curate { sync, summary } => {
+        Commands::Curate { sync, summary, agent } => {
+            std::env::set_var("ENGRAM_AGENT_ID", &agent);
             let options = engram_compiler::CurateOptions { summary, sync };
 
             match engram_compiler::curate(&root, options, &bulwark) {

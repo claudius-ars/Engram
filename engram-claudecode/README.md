@@ -13,22 +13,21 @@ every prompt, and provides a skill for on-demand memory recall and curation.
 
 ## Installation
 
-### Option A: Plugin directory (recommended)
+The plugin installs by wiring its hooks into Claude Code's settings.
+There is no marketplace registration step — this is a local plugin
+that lives alongside the Engram binary.
 
-```bash
-claude --plugin-dir ./engram-claudecode
-```
+### Option A — User-scoped (recommended)
 
-Claude Code discovers `engram-claudecode/.claude-plugin/plugin.json` and
-registers the hooks and skills automatically.
+Install once, works in every project automatically. In projects
+without a `.brv/` workspace the plugin does nothing silently.
 
-### Option B: Manual hook registration
+Add the hooks block to your user-level Claude Code settings file:
 
-Copy the hook entries from `hooks/hooks.json` into your project's
-`.claude/settings.json`:
+- **macOS:** `~/.claude/settings.json`
+- **Linux:** `~/.config/claude/settings.json`
 
-```jsonc
-// .claude/settings.json
+```json
 {
   "hooks": {
     "UserPromptSubmit": [
@@ -56,7 +55,47 @@ Copy the hook entries from `hooks/hooks.json` into your project's
 }
 ```
 
-Replace `/absolute/path/to/` with the actual path to the plugin directory.
+Replace `/absolute/path/to/engram-claudecode` with the actual path
+to this directory. **Absolute paths are required.**
+
+If the settings file already has content, merge the `hooks` block
+into the existing JSON rather than replacing the file.
+
+### Option B — Project-scoped
+
+Install per-project by adding the same hooks block to
+`.claude/settings.json` in the project root. Use this when you want
+Engram active only in specific projects.
+
+### After installing — Restart Claude Code
+
+Hook changes take effect after restarting Claude Code. If you edited
+settings during an active session, restart before testing.
+
+### Verify
+
+Test the retrieval hook directly:
+
+```bash
+echo "how does the query pipeline work" | \
+    CLAUDE_PROJECT_DIR=/path/to/your/project \
+    ENGRAM_BIN=$(which engram) \
+    /absolute/path/to/engram-claudecode/hooks/user_prompt_submit.sh
+```
+
+Expected output: an `## Engram Memory Context` block with matching
+facts. If output is empty, run the smoke test to diagnose:
+
+```bash
+/absolute/path/to/engram-claudecode/test_hook.sh /path/to/your/project
+```
+
+### Note on `plugin.json`
+
+The `.claude-plugin/plugin.json` manifest is included for future
+compatibility when Anthropic adds local directory plugin support to
+the Claude Code CLI. It is not used by the current installation
+method.
 
 ## How It Works
 

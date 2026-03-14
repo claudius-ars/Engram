@@ -6,7 +6,7 @@ use engram_bulwark::{
 fn make_request(access_type: AccessType, agent: &str, operation: &str) -> PolicyRequest {
     PolicyRequest {
         access_type,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some(agent.to_string()),
         operation: operation.to_string(),
         domain_tags: vec![],

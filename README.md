@@ -51,27 +51,51 @@ engram-cli                   (binary entry point)
 
 ## Installation
 
+### Download binary (recommended)
+
+Download the pre-built binary for your platform from the
+[latest release](https://github.com/claudius-ars/Engram/releases/latest):
+
+**macOS (Apple Silicon):**
 ```bash
+curl -L https://github.com/claudius-ars/Engram/releases/latest/download/engram-macos-arm64 \
+  -o ~/.local/bin/engram && chmod +x ~/.local/bin/engram
+```
+
+**macOS (Intel):**
+```bash
+curl -L https://github.com/claudius-ars/Engram/releases/latest/download/engram-macos-x86_64 \
+  -o ~/.local/bin/engram && chmod +x ~/.local/bin/engram
+```
+
+**Linux (x86_64):**
+```bash
+curl -L https://github.com/claudius-ars/Engram/releases/latest/download/engram-linux-x86_64 \
+  -o ~/.local/bin/engram && chmod +x ~/.local/bin/engram
+```
+
+Verify:
+```bash
+engram --help
+```
+
+### Build from source
+
+Requires Rust 1.75+:
+
+```bash
+# Install from git
+cargo install --git https://github.com/claudius-ars/Engram engram-cli
+
+# Or clone and build
 git clone https://github.com/claudius-ars/Engram.git
 cd Engram
 cargo build --release
-```
-
-The binary is at `target/release/engram`. Add it to your PATH:
-
-```bash
-# macOS / Linux
 cp target/release/engram ~/.local/bin/
-# or
-sudo cp target/release/engram /usr/local/bin/
-
-# Verify
-engram --help
 ```
 
 ### Prerequisites
 
-- Rust 1.75+ (edition 2021)
 - Optional: `ANTHROPIC_API_KEY` environment variable for LLM
   classification and Tier 3 synthesis
 
@@ -494,12 +518,44 @@ conversation context.
 
 ### Quick Start
 
-```bash
-# Install the plugin
-claude --plugin-dir ./engram-claudecode
+Add the hooks to `.claude/settings.json` in your project root
+(create the file if it doesn't exist):
 
-# Or manually wire the hooks (see engram-claudecode/README.md)
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/engram-claudecode/hooks/user_prompt_submit.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/engram-claudecode/hooks/session_end.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
+
+Replace `/absolute/path/to/engram-claudecode` with the actual path
+to your Engram installation. Absolute paths are required — Claude Code
+resolves hook commands from its own working directory, not the project
+root.
+
+Restart Claude Code after editing `settings.json` for the hooks to
+take effect.
 
 ### What the Plugin Provides
 

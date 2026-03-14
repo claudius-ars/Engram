@@ -55,7 +55,7 @@ fn run_tier3_impl(
     // 3. Bulwark policy check for LLM calls
     let request = PolicyRequest {
         access_type: AccessType::LlmCall,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "tier3_llm_synthesis".to_string(),
         domain_tags: vec![],

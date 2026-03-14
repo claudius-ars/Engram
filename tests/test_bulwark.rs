@@ -15,7 +15,7 @@ fn test_bulwark_stub_allows_read() {
     let bulwark = BulwarkHandle::new_stub();
     let request = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -29,7 +29,7 @@ fn test_bulwark_stub_allows_write() {
     let bulwark = BulwarkHandle::new_stub();
     let request = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: Some("fact-123".to_string()),
+        fact_ids: vec!["fact-123".to_string()],
         agent_id: Some("agent-abc".to_string()),
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -43,7 +43,7 @@ fn test_bulwark_stub_allows_llm_call() {
     let bulwark = BulwarkHandle::new_stub();
     let request = PolicyRequest {
         access_type: AccessType::LlmCall,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("any-agent".to_string()),
         operation: "tier3_llm_synthesis".to_string(),
         domain_tags: vec![],
@@ -67,7 +67,7 @@ fn test_bulwark_denying_blocks_read() {
     let bulwark = BulwarkHandle::new_denying();
     let request = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -82,7 +82,7 @@ fn test_bulwark_denying_blocks_write() {
     let bulwark = BulwarkHandle::new_denying();
     let request = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: Some("fact-1".to_string()),
+        fact_ids: vec!["fact-1".to_string()],
         agent_id: Some("agent-1".to_string()),
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -97,7 +97,7 @@ fn test_bulwark_denying_blocks_llm_call() {
     let bulwark = BulwarkHandle::new_denying();
     let request = PolicyRequest {
         access_type: AccessType::LlmCall,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("any-agent".to_string()),
         operation: "tier3_llm_synthesis".to_string(),
         domain_tags: vec![],
@@ -114,7 +114,7 @@ fn test_bulwark_denying_denies_all() {
     assert!(!bulwark.is_enabled());
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -187,7 +187,7 @@ fn test_bulwark_audit_no_panic() {
     for access_type in [AccessType::Read, AccessType::Write, AccessType::LlmCall] {
         let req = PolicyRequest {
             access_type,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "test".to_string(),
             domain_tags: vec![],
@@ -224,7 +224,7 @@ fn test_policy_from_config_missing_file_allows_all() {
     for at in [AccessType::Read, AccessType::Write, AccessType::LlmCall] {
         let req = PolicyRequest {
             access_type: at,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "test".to_string(),
             domain_tags: vec![],
@@ -244,7 +244,7 @@ fn test_policy_from_config_invalid_toml_denies_all() {
     for at in [AccessType::Read, AccessType::Write, AccessType::LlmCall] {
         let req = PolicyRequest {
             access_type: at,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "test".to_string(),
             domain_tags: vec![],
@@ -279,7 +279,7 @@ reason = "restricted workspace"
 
     let read_req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -289,7 +289,7 @@ reason = "restricted workspace"
 
     let write_req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -299,7 +299,7 @@ reason = "restricted workspace"
 
     let llm_req = PolicyRequest {
         access_type: AccessType::LlmCall,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "tier3".to_string(),
         domain_tags: vec![],
@@ -332,7 +332,7 @@ effect = "allow"
 
     let trusted_req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("trusted-agent".to_string()),
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -342,7 +342,7 @@ effect = "allow"
 
     let untrusted_req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("untrusted-bot".to_string()),
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -373,7 +373,7 @@ reason = "LLM calls disabled"
     let handle = BulwarkHandle::new_from_config(path, None, &AuditConfig::default());
     let req = PolicyRequest {
         access_type: AccessType::LlmCall,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "tier3".to_string(),
         domain_tags: vec![],
@@ -405,7 +405,7 @@ effect = "allow"
     let handle = BulwarkHandle::new_from_config(path.clone(), None, &AuditConfig::default());
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -438,7 +438,7 @@ effect = "allow"
     // Reads should still be allowed
     let read_req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -456,7 +456,7 @@ fn test_policy_empty_rules_default_deny() {
     let handle = BulwarkHandle::new_from_config(path, None, &AuditConfig::default());
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -484,7 +484,7 @@ agent = "special-agent"
     let handle = BulwarkHandle::new_from_config(path, None, &AuditConfig::default());
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("other-agent".to_string()),
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -601,7 +601,7 @@ effect = "deny"
 
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -626,7 +626,7 @@ reason = "not query"
 
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "compile".to_string(),
         domain_tags: vec![],
@@ -650,7 +650,7 @@ effect = "deny"
 
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec!["iso16530:wellbore".to_string(), "iso16530:pressure".to_string()],
@@ -676,7 +676,7 @@ reason = "tag mismatch"
     // Second tag (osdu:wellbore) does not match iso16530:*
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec!["iso16530:wellbore".to_string(), "osdu:wellbore".to_string()],
@@ -702,7 +702,7 @@ reason = "excluded"
     // Request with excluded tag falls through to default deny
     let req_excluded = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec!["internal:hr".to_string()],
@@ -713,7 +713,7 @@ reason = "excluded"
     // Request without excluded tag matches the allow rule
     let req_ok = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec!["iso16530:wellbore".to_string()],
@@ -738,7 +738,7 @@ effect = "deny"
     // Empty domain_tags passes vacuously (ALL of empty set is true)
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -764,7 +764,7 @@ reason = "fact type not allowed"
     // Request with durable fact type matches
     let req_ok = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -775,7 +775,7 @@ reason = "fact type not allowed"
     // Request with event fact type falls to default deny
     let req_deny = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -804,7 +804,7 @@ reason = "fact type not allowed"
 
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "curate".to_string(),
         domain_tags: vec![],
@@ -829,7 +829,7 @@ reason = "only durable facts allowed"
 
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "curate".to_string(),
         domain_tags: vec![],
@@ -853,7 +853,7 @@ effect = "deny"
 
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "curate".to_string(),
         domain_tags: vec![],

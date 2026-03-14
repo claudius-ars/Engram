@@ -81,10 +81,11 @@ pub fn compile_context_tree_with_config(
 ) -> CompileResult {
     // Policy check for write operations
     if write_index {
+        let agent_id = std::env::var("ENGRAM_AGENT_ID").unwrap_or_else(|_| "cli".to_string());
         let request = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
-            agent_id: None,
+            fact_ids: vec![],
+            agent_id: Some(agent_id),
             operation: "compile".to_string(),
             domain_tags: vec![],
             fact_types: vec![], // fact type unknown at compile time; enforcement requires curate scope
@@ -398,10 +399,11 @@ pub fn compile_incremental(
     }
 
     // Policy check
+    let agent_id = std::env::var("ENGRAM_AGENT_ID").unwrap_or_else(|_| "cli".to_string());
     let request = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
-        agent_id: None,
+        fact_ids: vec![],
+        agent_id: Some(agent_id),
         operation: "compile".to_string(),
         domain_tags: vec![],
         fact_types: vec![], // fact type unknown at compile time; enforcement requires curate scope

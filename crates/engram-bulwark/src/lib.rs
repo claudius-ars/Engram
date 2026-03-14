@@ -177,7 +177,7 @@ mod tests {
 
         let read_request = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -187,7 +187,7 @@ mod tests {
 
         let write_request = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: Some("fact-123".to_string()),
+            fact_ids: vec!["fact-123".to_string()],
             agent_id: Some("agent-abc".to_string()),
             operation: "curate".to_string(),
             domain_tags: vec![],
@@ -202,7 +202,7 @@ mod tests {
 
         let req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "curate".to_string(),
             domain_tags: vec![],
@@ -227,7 +227,7 @@ mod tests {
 
         let req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -246,7 +246,7 @@ mod tests {
         // Missing file → allow-all
         let req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],
@@ -280,7 +280,7 @@ reason = "restricted"
 
         let read_req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -290,7 +290,7 @@ reason = "restricted"
 
         let write_req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],
@@ -318,7 +318,7 @@ effect = "allow"
         let handle = BulwarkHandle::new_from_config(policy_path.clone(), None, &AuditConfig::default());
         let req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],
@@ -370,7 +370,7 @@ effect = "allow"
 
         let req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],

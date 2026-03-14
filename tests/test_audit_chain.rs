@@ -6,7 +6,7 @@ use engram_bulwark::{
 fn make_request(access_type: AccessType, agent: &str, operation: &str) -> PolicyRequest {
     PolicyRequest {
         access_type,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some(agent.to_string()),
         operation: operation.to_string(),
         domain_tags: vec![],
@@ -286,7 +286,7 @@ effect = "allow"
 
     let req = PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "query".to_string(),
         domain_tags: vec![],
@@ -334,7 +334,7 @@ effect = "allow"
 
     let req = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: None,
         operation: "compile".to_string(),
         domain_tags: vec!["iso16530:wellbore".to_string()],
@@ -357,4 +357,146 @@ effect = "allow"
         "domain_tags should contain 'iso16530:wellbore', got {:?}",
         tags
     );
+}
+
+// ============================================================
+// 10. agent_id is recorded in audit entries
+// ============================================================
+
+#[test]
+fn test_audit_entry_has_agent_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_path = tmp.path().join("bulwark.toml");
+    std::fs::write(
+        &policy_path,
+        r#"
+[[rules]]
+name = "allow-all"
+effect = "allow"
+"#,
+    )
+    .unwrap();
+
+    let audit_dir = tmp.path().join("audit");
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
+
+    let req = PolicyRequest {
+        access_type: AccessType::Read,
+        fact_ids: vec![],
+        agent_id: Some("test-agent".to_string()),
+        operation: "query".to_string(),
+        domain_tags: vec![],
+        fact_types: vec![],
+    };
+
+    let decision = handle.check(&req);
+    handle.audit(&req, &decision, 0);
+
+    let log_path = audit_dir.join("engram.log");
+    let content = std::fs::read_to_string(&log_path).expect("audit log should exist");
+    let last_line = content.lines().last().expect("should have at least one line");
+    let event: serde_json::Value = serde_json::from_str(last_line).expect("valid JSON");
+
+    assert_eq!(
+        event["agent_id"].as_str().unwrap(),
+        "test-agent",
+        "agent_id should be 'test-agent'"
+    );
+}
+
+// ============================================================
+// 11. fact_ids are recorded in audit entries
+// ============================================================
+
+#[test]
+fn test_audit_entry_has_fact_ids() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_path = tmp.path().join("bulwark.toml");
+    std::fs::write(
+        &policy_path,
+        r#"
+[[rules]]
+name = "allow-all"
+effect = "allow"
+"#,
+    )
+    .unwrap();
+
+    let audit_dir = tmp.path().join("audit");
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
+
+    let req = PolicyRequest {
+        access_type: AccessType::Read,
+        fact_ids: vec!["fact-alpha".to_string(), "fact-beta".to_string()],
+        agent_id: Some("cli".to_string()),
+        operation: "query".to_string(),
+        domain_tags: vec![],
+        fact_types: vec![],
+    };
+
+    let decision = handle.check(&req);
+    handle.audit(&req, &decision, 0);
+
+    let log_path = audit_dir.join("engram.log");
+    let content = std::fs::read_to_string(&log_path).expect("audit log should exist");
+    let last_line = content.lines().last().expect("should have at least one line");
+    let event: serde_json::Value = serde_json::from_str(last_line).expect("valid JSON");
+
+    let fact_ids = event["fact_ids"]
+        .as_array()
+        .expect("fact_ids should be an array");
+    assert_eq!(fact_ids.len(), 2);
+    assert_eq!(fact_ids[0].as_str().unwrap(), "fact-alpha");
+    assert_eq!(fact_ids[1].as_str().unwrap(), "fact-beta");
+}
+
+// ============================================================
+// 12. Integration: curate records fact_id and agent_id
+// ============================================================
+
+#[test]
+fn test_audit_curate_entry_has_fact_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_path = tmp.path().join("bulwark.toml");
+    std::fs::write(
+        &policy_path,
+        r#"
+[[rules]]
+name = "allow-all"
+effect = "allow"
+"#,
+    )
+    .unwrap();
+
+    let audit_dir = tmp.path().join("audit");
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
+
+    // Simulate what the curate path does
+    let req = PolicyRequest {
+        access_type: AccessType::Write,
+        fact_ids: vec!["2026-03-14-test-curated-fact".to_string()],
+        agent_id: Some("cli".to_string()),
+        operation: "curate".to_string(),
+        domain_tags: vec![],
+        fact_types: vec!["durable".to_string()],
+    };
+
+    let decision = handle.check(&req);
+    handle.audit(&req, &decision, 0);
+
+    let log_path = audit_dir.join("engram.log");
+    let content = std::fs::read_to_string(&log_path).expect("audit log should exist");
+    let last_line = content.lines().last().expect("should have at least one line");
+    let event: serde_json::Value = serde_json::from_str(last_line).expect("valid JSON");
+
+    let fact_ids = event["fact_ids"]
+        .as_array()
+        .expect("fact_ids should be an array");
+    assert_eq!(fact_ids.len(), 1);
+    assert!(
+        fact_ids[0].as_str().unwrap().contains("test-curated-fact"),
+        "fact_ids should contain the curated fact ID"
+    );
+    assert_eq!(event["agent_id"].as_str().unwrap(), "cli");
+    assert_eq!(event["operation"].as_str().unwrap(), "curate");
 }

@@ -210,11 +210,26 @@ fn spawn_background_compile(root: &Path, index_dir: &Path) -> Result<(), CurateE
 
 /// Top-level curate function called by the CLI.
 pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> Result<CurateResult, CurateError> {
-    // Policy check
+    let summary = options.summary.trim().to_string();
+    if summary.is_empty() {
+        return Err(CurateError::EmptySummary);
+    }
+
+    let slug = make_slug(&summary)?;
+
+    // Phase A: Write .md file
+    let output_path = determine_output_path(root, &slug);
+
+    // Policy check — includes the fact_id derived from the output path
+    let fact_id = output_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let agent_id = std::env::var("ENGRAM_AGENT_ID").unwrap_or_else(|_| "cli".to_string());
     let request = PolicyRequest {
         access_type: AccessType::Write,
-        fact_id: None,
-        agent_id: None,
+        fact_ids: vec![fact_id],
+        agent_id: Some(agent_id),
         operation: "curate".to_string(),
         domain_tags: vec![],
         fact_types: vec!["durable".to_string()],
@@ -228,15 +243,6 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
         return Err(CurateError::PolicyDenied(reason));
     }
 
-    let summary = options.summary.trim().to_string();
-    if summary.is_empty() {
-        return Err(CurateError::EmptySummary);
-    }
-
-    let slug = make_slug(&summary)?;
-
-    // Phase A: Write .md file
-    let output_path = determine_output_path(root, &slug);
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }

@@ -3,7 +3,7 @@ use engram_bulwark::{AccessType, AuditWriter, PolicyDecision, PolicyRequest};
 fn make_request() -> PolicyRequest {
     PolicyRequest {
         access_type: AccessType::Read,
-        fact_id: None,
+        fact_ids: vec![],
         agent_id: Some("cli-test-agent".to_string()),
         operation: "query".to_string(),
         domain_tags: vec![],

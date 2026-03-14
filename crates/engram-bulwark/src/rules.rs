@@ -269,7 +269,7 @@ mod tests {
         let state = PolicyState::allow_all();
         let req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -283,7 +283,7 @@ mod tests {
         let state = PolicyState::deny_all();
         let req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -327,7 +327,7 @@ mod tests {
 
         let read_req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -337,7 +337,7 @@ mod tests {
 
         let write_req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],
@@ -376,7 +376,7 @@ mod tests {
         };
         let req = PolicyRequest {
             access_type: AccessType::Write,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: None,
             operation: "compile".to_string(),
             domain_tags: vec![],
@@ -445,7 +445,7 @@ reason = "read-only mode"
         };
         let req = PolicyRequest {
             access_type: AccessType::LlmCall,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: Some("agent-1".to_string()),
             operation: "tier3".to_string(),
             domain_tags: vec![],
@@ -489,7 +489,7 @@ reason = "read-only mode"
 
         let trusted_req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: Some("trusted-agent".to_string()),
             operation: "query".to_string(),
             domain_tags: vec![],
@@ -499,7 +499,7 @@ reason = "read-only mode"
 
         let untrusted_req = PolicyRequest {
             access_type: AccessType::Read,
-            fact_id: None,
+            fact_ids: vec![],
             agent_id: Some("untrusted-bot".to_string()),
             operation: "query".to_string(),
             domain_tags: vec![],
