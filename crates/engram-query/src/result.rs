@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QueryHit {
     pub id: String,
     pub title: Option<String>,
@@ -21,6 +21,8 @@ pub struct QueryHit {
     pub maturity: f64,
     pub access_count: u64,
     pub update_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

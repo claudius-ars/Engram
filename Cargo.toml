@@ -27,6 +27,7 @@ serde_yaml      = "0.9"
 chrono          = "0.4"
 bincode         = "1"
 serde           = { version = "1", features = ["derive"] }
+mockito         = "1"
 
 [[test]]
 name = "test_pipeline"
@@ -39,3 +40,7 @@ path = "tests/test_recall.rs"
 [[test]]
 name = "test_roundtrip"
 path = "tests/test_roundtrip.rs"
+
+[[test]]
+name = "test_verify_audit_cli"
+path = "tests/test_verify_audit_cli.rs"

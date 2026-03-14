@@ -2,32 +2,49 @@
 # Copy to .brv/bulwark.toml to enable access control.
 # Absent file = allow-all (stub mode, no audit log).
 #
-# The Bulwark policy engine evaluates PolicyRequest structs with:
-#   access_type: Read | Write | LlmCall
-#   fact_id:     Optional fact ID being accessed
-#   agent_id:    Optional agent identifier
-#   operation:   String describing the operation (e.g., "query", "compile",
-#                "curate", "tier3_llm_synthesis")
+# Rules are evaluated top-to-bottom; the first matching rule wins.
+# If no rule matches, the engine defaults to DENY (fail-closed).
 #
-# Current implementation uses a stub engine:
-#   - BulwarkHandle::new_stub()    → allows all requests
-#   - BulwarkHandle::new_denying() → denies all requests
+# Each rule can match on six conditions (all must hold for a match):
+#   1. access_type  — "read", "write", "llm_call", or "*"
+#   2. agent        — agent ID glob ("*", "prefix*", or exact match)
+#   3. operations   — list of operation globs; empty = no restriction
+#   4. domain_tags_allow — allow-list for request domain tags; empty = no restriction
+#   5. domain_tags_deny  — exclusion list; if ANY request tag matches, rule skips
+#   6. fact_types   — list of allowed fact types; empty = no restriction
 #
-# Future phases will support rule-based evaluation from this file.
-# Rule syntax is reserved and subject to change.
+# domain_tags_deny semantics:
+#   domain_tags_deny is an exclusion within the containing rule, NOT a standalone
+#   deny rule. If a request tag matches a deny pattern, this rule simply does not
+#   match — the next rule in declaration order evaluates normally. To deny a tag
+#   outright, use a dedicated deny rule with domain_tags_allow matching that tag.
 
-# Example rule structure (not yet implemented):
-# [[rules]]
-# description  = "Allow all reads"
-# access_types = ["Read"]
-# action       = "Allow"
-#
-# [[rules]]
-# description  = "Deny LLM calls without explicit opt-in"
-# access_types = ["LlmCall"]
-# action       = "Deny"
-#
-# [[rules]]
-# description  = "Deny everything else"
-# access_types = ["*"]
-# action       = "Deny"
+# Full example: oil-and-gas exploration agent
+[[rules]]
+name              = "exploration-agent-read"
+effect            = "allow"
+agent             = "exploration-agent"
+access_type       = "read"
+operations        = ["query"]
+domain_tags_allow = ["iso16530:*", "osdu:*"]
+domain_tags_deny  = ["internal:hr"]
+fact_types        = ["durable", "state"]
+reason            = "Exploration agent read access to wellbore domain"
+
+# Compile access for compiler agent
+[[rules]]
+name        = "compiler-write"
+effect      = "allow"
+agent       = "compiler-agent"
+access_type = "write"
+operations  = ["compile", "curate"]
+fact_types  = ["durable", "state", "event"]
+reason      = "Compiler agent write access"
+
+# Default deny — must be last
+[[rules]]
+name        = "default-deny"
+effect      = "deny"
+agent       = "*"
+access_type = "*"
+reason      = "Implicit deny — no rule matched"

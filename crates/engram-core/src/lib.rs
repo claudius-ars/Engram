@@ -12,7 +12,7 @@ pub use causal::{
     CausalBuildReport, CausalEdge, CausalHeader, CausalNode, CausalValidationWarning,
     CAUSAL_MAGIC, CAUSAL_VERSION, NULL_NODE,
 };
-pub use config::{load_workspace_config, AccessTrackingConfig, CompileConfig, OntologyConfig, Tier3Config, WorkspaceConfig, CAUSAL_MAX_HOPS_CAP};
+pub use config::{load_workspace_config, AccessTrackingConfig, AuditConfig, CompileConfig, OntologyConfig, Tier3Config, WorkspaceConfig, CAUSAL_MAX_HOPS_CAP};
 pub use fact_type::FactType;
 pub use frontmatter::{FactRecord, RawFrontmatter};
 pub use hash::fnv1a_u64;

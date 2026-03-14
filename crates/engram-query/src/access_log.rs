@@ -132,6 +132,7 @@ mod tests {
                 maturity: 1.0,
                 access_count: 0,
                 update_count: 0,
+                answer: None,
             },
             QueryHit {
                 id: "llm-synthesized".to_string(),
@@ -152,6 +153,7 @@ mod tests {
                 maturity: 1.0,
                 access_count: 0,
                 update_count: 0,
+                answer: None,
             },
         ];
 
@@ -188,6 +190,7 @@ mod tests {
             maturity: 1.0,
             access_count: 0,
             update_count: 0,
+            answer: None,
         }];
 
         append_access_entries(&log_path, &hits, "my-agent", 5);
@@ -225,6 +228,7 @@ mod tests {
             maturity: 1.0,
             access_count: 0,
             update_count: 0,
+            answer: None,
         }];
 
         // Should not panic — just prints a WARN

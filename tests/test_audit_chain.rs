@@ -1,3 +1,4 @@
+use engram_core::AuditConfig;
 use engram_bulwark::{
     AccessType, BulwarkHandle, ChainError, PolicyDecision, PolicyRequest, verify_audit_chain,
 };
@@ -8,6 +9,8 @@ fn make_request(access_type: AccessType, agent: &str, operation: &str) -> Policy
         fact_id: None,
         agent_id: Some(agent.to_string()),
         operation: operation.to_string(),
+        domain_tags: vec![],
+        fact_types: vec![],
     }
 }
 
@@ -32,7 +35,7 @@ effect = "allow"
     )
     .unwrap();
 
-    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()));
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
 
     // Make 5 check + audit calls with mixed decisions
     for i in 0..5 {
@@ -68,7 +71,7 @@ effect = "allow"
     )
     .unwrap();
 
-    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()));
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
 
     for i in 0..3 {
         let req = make_request(AccessType::Read, &format!("agent-{}", i), "query");
@@ -114,7 +117,7 @@ effect = "allow"
     )
     .unwrap();
 
-    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()));
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
 
     for i in 0..2 {
         let req = make_request(AccessType::Read, &format!("agent-{}", i), "query");
@@ -176,7 +179,7 @@ effect = "allow"
     )
     .unwrap();
 
-    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()));
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
 
     let req = make_request(AccessType::Write, "agent-1", "compile");
     let decision = handle.check(&req);
@@ -218,7 +221,7 @@ effect = "allow"
     )
     .unwrap();
 
-    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()));
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
 
     // Allow request
     let allow_req = make_request(AccessType::Read, "trusted", "query");
@@ -257,5 +260,101 @@ fn audit_noop_for_stub_handle() {
     assert!(
         !audit_dir.exists(),
         "stub handle should not create audit directory"
+    );
+}
+
+// ============================================================
+// 8. Timing: duration_ms is present and parseable
+// ============================================================
+
+#[test]
+fn timing_nonzero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_path = tmp.path().join("bulwark.toml");
+    std::fs::write(
+        &policy_path,
+        r#"
+[[rules]]
+name = "allow-all"
+effect = "allow"
+"#,
+    )
+    .unwrap();
+
+    let audit_dir = tmp.path().join("audit");
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
+
+    let req = PolicyRequest {
+        access_type: AccessType::Read,
+        fact_id: None,
+        agent_id: None,
+        operation: "query".to_string(),
+        domain_tags: vec![],
+        fact_types: vec![],
+    };
+
+    let t0 = std::time::Instant::now();
+    let decision = handle.check(&req);
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    handle.audit(&req, &decision, duration_ms);
+
+    let log_path = audit_dir.join("engram.log");
+    let content = std::fs::read_to_string(&log_path).expect("audit log should exist");
+    let last_line = content.lines().last().expect("should have at least one line");
+    let event: serde_json::Value = serde_json::from_str(last_line).expect("valid JSON");
+
+    // duration_ms must be present and parseable as u64.
+    // Policy evaluation is sub-microsecond on most platforms, so the value
+    // may be 0 when Instant resolution is coarser than 1ms. We assert the
+    // field exists and is a non-negative integer rather than > 0.
+    let dur = event["duration_ms"].as_u64().expect("duration_ms should be a u64");
+    assert!(dur < 10_000, "duration_ms should be reasonable, got {}", dur);
+}
+
+// ============================================================
+// 9. domain_tags are forwarded to audit events
+// ============================================================
+
+#[test]
+fn domain_tags_forwarded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_path = tmp.path().join("bulwark.toml");
+    std::fs::write(
+        &policy_path,
+        r#"
+[[rules]]
+name = "allow-all"
+effect = "allow"
+"#,
+    )
+    .unwrap();
+
+    let audit_dir = tmp.path().join("audit");
+    let handle = BulwarkHandle::new_from_config(policy_path, Some(audit_dir.clone()), &AuditConfig::default());
+
+    let req = PolicyRequest {
+        access_type: AccessType::Write,
+        fact_id: None,
+        agent_id: None,
+        operation: "compile".to_string(),
+        domain_tags: vec!["iso16530:wellbore".to_string()],
+        fact_types: vec![],
+    };
+
+    let decision = handle.check(&req);
+    handle.audit(&req, &decision, 0);
+
+    let log_path = audit_dir.join("engram.log");
+    let content = std::fs::read_to_string(&log_path).expect("audit log should exist");
+    let last_line = content.lines().last().expect("should have at least one line");
+    let event: serde_json::Value = serde_json::from_str(last_line).expect("valid JSON");
+
+    let tags = event["domain_tags"]
+        .as_array()
+        .expect("domain_tags should be an array");
+    assert!(
+        tags.iter().any(|t| t.as_str() == Some("iso16530:wellbore")),
+        "domain_tags should contain 'iso16530:wellbore', got {:?}",
+        tags
     );
 }

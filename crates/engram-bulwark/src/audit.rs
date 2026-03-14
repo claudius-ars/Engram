@@ -24,27 +24,108 @@ pub struct AuditEvent {
     pub prev_hash: String,
 }
 
-/// Append-only audit log writer with SHA-256 hash chain.
+/// Append-only audit log writer with SHA-256 hash chain, size-based rotation,
+/// and optional SIEM emission.
 #[derive(Debug)]
 pub struct AuditWriter {
     log_path: PathBuf,
+    /// Maximum log size in bytes before rotation. 0 = no rotation.
+    pub max_log_bytes: u64,
+    /// SIEM endpoint URL. None = SIEM disabled.
+    siem_endpoint: Option<String>,
+    /// Resolved bearer token value. Never logged.
+    siem_token: Option<String>,
+    /// If true, startup fails when SIEM endpoint is unreachable.
+    siem_required: bool,
 }
 
 impl AuditWriter {
-    pub fn new(log_path: PathBuf) -> Self {
-        AuditWriter { log_path }
+    /// Create a new audit writer.
+    ///
+    /// `siem_token_env`: if Some, the named env var is read at construction time
+    /// to resolve the bearer token. If the env var is not set, SIEM emission is
+    /// silently disabled for this writer instance.
+    pub fn new(
+        log_path: PathBuf,
+        max_log_bytes: u64,
+        siem_endpoint: Option<String>,
+        siem_token_env: Option<&str>,
+        siem_required: bool,
+    ) -> Self {
+        let siem_token = siem_token_env.and_then(|env_var| {
+            match std::env::var(env_var) {
+                Ok(val) => Some(val),
+                Err(_) => {
+                    eprintln!(
+                        "WARN [bulwark] SIEM token env var '{}' not set — SIEM emission disabled",
+                        env_var
+                    );
+                    None
+                }
+            }
+        });
+
+        AuditWriter {
+            log_path,
+            max_log_bytes,
+            siem_endpoint,
+            siem_token,
+            siem_required,
+        }
+    }
+
+    /// Verifies SIEM endpoint reachability with a HEAD request.
+    /// Returns Ok(()) if SIEM is not configured or endpoint is reachable.
+    /// Returns Err(String) if siem_required = true and endpoint is unreachable.
+    pub fn verify_siem_reachability(&self) -> Result<(), String> {
+        let url = match &self.siem_endpoint {
+            None => return Ok(()),
+            Some(u) => u.clone(),
+        };
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|e| format!("SIEM client error: {}", e))?;
+
+        let mut req = client.head(&url);
+        if let Some(token) = &self.siem_token {
+            req = req.bearer_auth(token);
+        }
+
+        match req.send() {
+            Ok(resp) if resp.status().is_success() || resp.status().is_redirection() => Ok(()),
+            Ok(resp) => {
+                let reason = format!("HTTP {}", resp.status());
+                self.handle_unreachable(&url, &reason)
+            }
+            Err(e) => self.handle_unreachable(&url, &e.to_string()),
+        }
+    }
+
+    fn handle_unreachable(&self, url: &str, reason: &str) -> Result<(), String> {
+        if self.siem_required {
+            Err(format!("SIEM endpoint unreachable: {}: {}", url, reason))
+        } else {
+            eprintln!("WARN [bulwark] SIEM endpoint unreachable: {}: {}", url, reason);
+            Ok(())
+        }
     }
 
     /// Append an audit entry to the log.
     ///
-    /// Opens the file with create + read + append, acquires an exclusive lock,
-    /// computes the hash chain, writes the NDJSON line, and releases the lock.
+    /// If `max_log_bytes > 0` and the current log exceeds the threshold,
+    /// the log is rotated (renamed to an archive) before writing. Each
+    /// rotated archive is an independent sealed chain (NRD-27).
     pub fn append(
         &mut self,
         request: &PolicyRequest,
         decision: &PolicyDecision,
         duration_ms: u64,
     ) -> std::io::Result<()> {
+        // Check rotation before opening for append
+        self.maybe_rotate()?;
+
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -75,7 +156,7 @@ impl AuditWriter {
             operation: request.operation.clone(),
             access_type: access_type_str.to_string(),
             fact_ids: request.fact_id.iter().cloned().collect(),
-            domain_tags: vec![],
+            domain_tags: request.domain_tags.clone(),
             decision: decision_str,
             reason,
             rule_name,
@@ -91,6 +172,87 @@ impl AuditWriter {
         file.flush()?;
 
         file.unlock()?;
+
+        // SIEM emission is best-effort — never blocks or fails the audit append.
+        self.emit_to_siem(&json);
+
+        Ok(())
+    }
+
+    /// Emit an audit event to the configured SIEM endpoint.
+    ///
+    /// Best-effort: one retry on 5xx, no retry on 4xx or network error.
+    /// Failures are logged to stderr but never propagated.
+    fn emit_to_siem(&self, event_json: &str) {
+        let (endpoint, token) = match (&self.siem_endpoint, &self.siem_token) {
+            (Some(e), Some(t)) => (e, t),
+            _ => return,
+        };
+
+        let client = reqwest::blocking::Client::new();
+        let result = client
+            .post(endpoint)
+            .bearer_auth(token)
+            .header("Content-Type", "application/json")
+            .body(event_json.to_string())
+            .send();
+
+        match result {
+            Ok(resp) if resp.status().is_server_error() => {
+                eprintln!("WARN [bulwark] SIEM emit returned {}, retrying once", resp.status());
+                let _ = client
+                    .post(endpoint)
+                    .bearer_auth(token)
+                    .header("Content-Type", "application/json")
+                    .body(event_json.to_string())
+                    .send()
+                    .map_err(|e| eprintln!("WARN [bulwark] SIEM retry failed: {}", e));
+            }
+            Ok(_) => {} // 2xx or 4xx — no retry on 4xx
+            Err(e) => {
+                eprintln!("WARN [bulwark] SIEM emit failed: {}", e);
+            }
+        }
+    }
+
+    /// Rotate the log file if it exceeds `max_log_bytes`.
+    ///
+    /// Archive name: `engram.log.YYYYMMDD-HHMMSS` (UTC).
+    /// Collision avoidance: appends `.1`, `.2`, etc. if the target exists.
+    fn maybe_rotate(&self) -> std::io::Result<()> {
+        if self.max_log_bytes == 0 {
+            return Ok(());
+        }
+
+        let meta = match std::fs::metadata(&self.log_path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e),
+        };
+
+        if meta.len() < self.max_log_bytes {
+            return Ok(());
+        }
+
+        let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        let base_archive = self.log_path.with_file_name(format!("engram.log.{}", ts));
+
+        let archive_path = if !base_archive.exists() {
+            base_archive
+        } else {
+            let mut counter = 1u32;
+            loop {
+                let candidate = self.log_path.with_file_name(
+                    format!("engram.log.{}.{}", ts, counter),
+                );
+                if !candidate.exists() {
+                    break candidate;
+                }
+                counter += 1;
+            }
+        };
+
+        std::fs::rename(&self.log_path, &archive_path)?;
         Ok(())
     }
 }
@@ -215,10 +377,3 @@ pub fn verify_audit_chain(log_path: &Path) -> Result<usize, ChainError> {
     Ok(count)
 }
 
-// Re-export the old types that downstream crates expect.
-// AuditOutcome is still used in the public API.
-#[derive(Debug, Clone)]
-pub enum AuditOutcome {
-    Success,
-    Failure { reason: String },
-}

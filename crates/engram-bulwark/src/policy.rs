@@ -11,6 +11,8 @@ pub struct PolicyRequest {
     pub fact_id: Option<String>,
     pub agent_id: Option<String>,
     pub operation: String,
+    pub domain_tags: Vec<String>,
+    pub fact_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

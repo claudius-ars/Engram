@@ -45,5 +45,20 @@ importance_delta = 0.001
 # When present, enables compile-time tag validation and query-time expansion.
 # file = ".brv/ontology.json"
 
+# BFS expansion depth for query-time token enrichment.
+# 0 = no expansion; 1 = direct neighbors (default); max = 3 (clamped).
+# expansion_depth = 1
+
+[audit]
+# Maximum audit log size in bytes before rotation. 0 = no rotation.
+# max_log_bytes = 52428800        # 50 MB
+# siem_endpoint  = "https://siem.example.com/ingest"
+# siem_token_env = "SIEM_API_TOKEN"   # name of env var holding bearer token
+# siem_required  = false              # true = fail at startup if SIEM unreachable
+
 # Bulwark policy rules live in .brv/bulwark.toml (separate file).
 # See .brv/bulwark.toml.example for policy rule syntax.
+#
+# Hot-reload: the policy file is polled every 30s for changes.
+# On Unix, send SIGHUP to the process for an immediate reload:
+#   kill -HUP <pid>

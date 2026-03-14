@@ -41,6 +41,7 @@ pub use tier3::CACHE_TIER_LLM;
 pub struct QueryOptions {
     pub max_results: usize,
     pub min_score: f64,
+    pub domain_tags: Vec<String>,
 }
 
 impl Default for QueryOptions {
@@ -48,6 +49,7 @@ impl Default for QueryOptions {
         QueryOptions {
             max_results: 10,
             min_score: 0.0,
+            domain_tags: vec![],
         }
     }
 }
@@ -107,8 +109,14 @@ pub fn query(
         fact_id: None,
         agent_id: None,
         operation: "query".to_string(),
+        domain_tags: options.domain_tags.clone(),
+        fact_types: vec![], // fact type unknown at query time; enforcement requires curate scope
     };
-    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
+    let t0 = std::time::Instant::now();
+    let decision = bulwark.check(&request);
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    bulwark.audit(&request, &decision, duration_ms);
+    if let PolicyDecision::Deny { reason, .. } = decision {
         return Err(QueryError::PolicyDenied(reason));
     }
 
@@ -122,8 +130,6 @@ pub fn query(
     if let Some(cached) = cache.get(&fingerprint, generation, dirty) {
         let mut result = cached.clone();
         result.meta.cache_tier = 0;
-        let decision = PolicyDecision::Allow;
-        bulwark.audit(&request, &decision, 0);
         return Ok(result);
     }
 
@@ -146,8 +152,6 @@ pub fn query(
         ) {
             let mut result = cached.clone();
             result.meta.cache_tier = 1;
-            let decision = PolicyDecision::Allow;
-            bulwark.audit(&request, &decision, 0);
             return Ok(result);
         }
     }
@@ -300,11 +304,7 @@ pub fn query(
     cache.insert(fingerprint, result.clone(), generation);
     fuzzy_cache.insert(query_string.to_string(), result.clone(), generation);
 
-    // 15. Bulwark audit
-    let decision = PolicyDecision::Allow;
-    bulwark.audit(&request, &decision, 0);
-
-    // 16. Access log — append one entry per hit (non-fatal)
+    // 15. Access log — append one entry per hit (non-fatal)
     if config.access_tracking.enabled {
         let log_path = config
             .access_tracking

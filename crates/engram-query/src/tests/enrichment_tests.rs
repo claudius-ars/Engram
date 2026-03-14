@@ -38,6 +38,7 @@ fn make_sparse_temporal_hit(source_path_hash: u64) -> QueryHit {
         maturity: 1.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     }
 }
 

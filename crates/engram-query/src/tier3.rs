@@ -58,8 +58,14 @@ fn run_tier3_impl(
         fact_id: None,
         agent_id: None,
         operation: "tier3_llm_synthesis".to_string(),
+        domain_tags: vec![],
+        fact_types: vec![], // fact type unknown at query time; enforcement requires curate scope
     };
-    if let PolicyDecision::Deny { .. } = bulwark.check(&request) {
+    let t0 = std::time::Instant::now();
+    let decision = bulwark.check(&request);
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    bulwark.audit(&request, &decision, duration_ms);
+    if let PolicyDecision::Deny { .. } = decision {
         return None;
     }
 
@@ -254,9 +260,7 @@ fn make_synthetic_hit(answer: String) -> QueryHit {
         fact_type: "durable".to_string(),
         confidence: 1.0,
         keywords: vec!["llm-synthesized".to_string()],
-        // body is not a field on QueryHit; the answer goes into the `id` as a convention
-        // Actually, let's store it in tags for now since there's no body field
-        tags: vec![format!("synthesis:{}", answer)],
+        answer: Some(answer),
         ..QueryHit::default()
     }
 }
@@ -290,7 +294,8 @@ mod tests {
         let hit = make_synthetic_hit("The answer is 42.".to_string());
         assert_eq!(hit.id, "llm-synthesized");
         assert_eq!(hit.score, 1.0);
-        assert!(hit.tags[0].contains("The answer is 42."));
+        assert_eq!(hit.answer, Some("The answer is 42.".to_string()));
+        assert!(hit.tags.is_empty());
     }
 
     #[test]

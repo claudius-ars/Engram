@@ -499,11 +499,11 @@ impl OpenIndex {
     ) -> Result<Vec<ScoredDoc>, SearchError> {
         let f = &self.fields;
 
-        // Ontology-based query expansion (depth-1, OR semantics)
+        // Ontology-based query expansion (configurable depth, OR semantics)
         let effective_query = match ontology {
             Some(ont) if !ont.is_empty() => {
                 let tokens: Vec<&str> = query_string.split_whitespace().collect();
-                let expanded = ont.expand_tokens(&tokens);
+                let expanded = ont.expand_tokens(&tokens, config.ontology.expansion_depth);
                 if expanded.len() > tokens.len() {
                     expanded.join(" ")
                 } else {
@@ -717,6 +717,7 @@ impl OpenIndex {
                     maturity,
                     access_count,
                     update_count,
+                    answer: None,
                 },
             });
         }

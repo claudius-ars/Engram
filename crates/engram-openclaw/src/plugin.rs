@@ -40,6 +40,7 @@ impl EngramPlugin {
         let options = QueryOptions {
             max_results: self.options.max_facts,
             min_score: self.options.min_score,
+            domain_tags: vec![],
         };
 
         let query_result = engram_query::query(

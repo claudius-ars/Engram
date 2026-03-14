@@ -216,9 +216,15 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
         fact_id: None,
         agent_id: None,
         operation: "curate".to_string(),
+        domain_tags: vec![],
+        fact_types: vec!["durable".to_string()],
     };
 
-    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
+    let t0 = std::time::Instant::now();
+    let decision = bulwark.check(&request);
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    bulwark.audit(&request, &decision, duration_ms);
+    if let PolicyDecision::Deny { reason, .. } = decision {
         return Err(CurateError::PolicyDenied(reason));
     }
 
@@ -265,10 +271,6 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
             }
         }
 
-        // Audit success
-        let decision = PolicyDecision::Allow;
-        bulwark.audit(&request, &decision, 0);
-
         Ok(CurateResult {
             written_path: output_path,
             slug,
@@ -277,10 +279,6 @@ pub fn curate(root: &Path, options: CurateOptions, bulwark: &BulwarkHandle) -> R
     } else {
         // Async path: spawn background compile
         spawn_background_compile(root, &index_dir)?;
-
-        // Audit success
-        let decision = PolicyDecision::Allow;
-        bulwark.audit(&request, &decision, 0);
 
         Ok(CurateResult {
             written_path: output_path,

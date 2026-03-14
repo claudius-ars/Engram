@@ -101,6 +101,7 @@ fn causal_node_to_query_hit(
         maturity: 0.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     }
 }
 
@@ -356,6 +357,7 @@ mod tests {
             maturity: 0.0,
             access_count: 0,
             update_count: 0,
+            answer: None,
         }
     }
 

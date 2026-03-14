@@ -13,6 +13,7 @@ fn default_query_options() -> QueryOptions {
     QueryOptions {
         max_results: 10,
         min_score: 0.0,
+        domain_tags: vec![],
     }
 }
 
@@ -907,4 +908,50 @@ fn test_incremental_handles_rename() {
     let fps = engram_compiler::load_fingerprints(&index_dir);
     assert!(fps.entries.contains_key(".brv/context-tree/new_name.md"), "fingerprints should have new name");
     assert!(!fps.entries.contains_key(".brv/context-tree/old_name.md"), "fingerprints should not have old name");
+}
+
+// ============================================================
+// QueryHit.answer field tests
+// ============================================================
+
+#[test]
+fn answer_field_defaults_to_none() {
+    let hit = engram_query::QueryHit::default();
+    assert!(hit.answer.is_none());
+}
+
+#[test]
+fn answer_field_survives_serde_roundtrip() {
+    let hit = engram_query::QueryHit {
+        id: "test".to_string(),
+        answer: Some("test answer".to_string()),
+        ..engram_query::QueryHit::default()
+    };
+    let json = serde_json::to_string(&hit).unwrap();
+    let deserialized: engram_query::QueryHit = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.answer, Some("test answer".to_string()));
+}
+
+#[test]
+fn answer_field_absent_in_old_json_deserializes_to_none() {
+    let json = r#"{"id":"fact-1","title":null,"source_path":"a.md","tags":[],"domain_tags":[],"score":0.5,"bm25_score":0.3,"fact_type":"durable","confidence":1.0,"importance":1.0,"recency":1.0,"caused_by":[],"causes":[],"keywords":[],"related":[],"maturity":1.0,"access_count":0,"update_count":0}"#;
+    let hit: engram_query::QueryHit = serde_json::from_str(json).unwrap();
+    assert!(hit.answer.is_none(), "missing answer field should deserialize to None");
+    assert_eq!(hit.id, "fact-1");
+}
+
+#[test]
+fn answer_not_in_tags() {
+    // Directly test the Tier 3 output assembly: answer goes in the answer field,
+    // not in tags with a "synthesis:" prefix.
+    let hit = engram_query::QueryHit {
+        id: "llm-synthesized".to_string(),
+        answer: Some("The capybara is the largest rodent.".to_string()),
+        ..engram_query::QueryHit::default()
+    };
+    assert!(hit.answer.is_some());
+    assert!(
+        !hit.tags.iter().any(|t| t.starts_with("synthesis:")),
+        "tags must not contain synthesis: prefix"
+    );
 }

@@ -132,6 +132,7 @@ fn test_search_max_results() {
     let options = QueryOptions {
         max_results: 2,
         min_score: 0.0,
+        domain_tags: vec![],
     };
     let results = searcher
         .search("zebra", &options, &default_config(), &CausalReader::empty(), None, None)

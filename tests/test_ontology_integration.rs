@@ -26,7 +26,7 @@ fn query_helper(
     engram_query::query(
         root,
         query_str,
-        QueryOptions { max_results: 10, min_score: 0.0 },
+        QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,

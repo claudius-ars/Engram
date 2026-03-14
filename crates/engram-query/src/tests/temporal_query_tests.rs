@@ -227,6 +227,7 @@ fn test_merge_deduplicates_by_source_path_hash() {
         maturity: 1.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     };
 
     // BM25 hit for a different file
@@ -249,6 +250,7 @@ fn test_merge_deduplicates_by_source_path_hash() {
         maturity: 1.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     };
 
     let merged = merge_temporal_and_bm25(

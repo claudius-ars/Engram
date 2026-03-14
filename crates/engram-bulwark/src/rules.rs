@@ -21,6 +21,19 @@ pub struct PolicyRule {
     /// Optional human-readable reason (used in Deny decisions)
     #[serde(default)]
     pub reason: Option<String>,
+    /// Operation patterns: "query", "compile", "curate", or "*". Empty = no restriction.
+    #[serde(default)]
+    pub operations: Vec<String>,
+    /// Allow-list patterns for domain tags. Empty = no restriction.
+    #[serde(default)]
+    pub domain_tags_allow: Vec<String>,
+    /// Exclusion patterns for domain tags within this rule. If any request tag
+    /// matches, this rule does not match (next rule evaluates).
+    #[serde(default)]
+    pub domain_tags_deny: Vec<String>,
+    /// Fact type patterns: "durable", "state", "event", or "*". Empty = no restriction.
+    #[serde(default)]
+    pub fact_types: Vec<String>,
 }
 
 fn default_wildcard() -> String {
@@ -52,6 +65,10 @@ impl PolicyState {
                 access_type: "*".to_string(),
                 agent: "*".to_string(),
                 reason: None,
+                operations: vec![],
+                domain_tags_allow: vec![],
+                domain_tags_deny: vec![],
+                fact_types: vec![],
             }],
             from_file: false,
         }
@@ -66,6 +83,10 @@ impl PolicyState {
                 access_type: "*".to_string(),
                 agent: "*".to_string(),
                 reason: Some("Policy file invalid — deny-all failsafe".to_string()),
+                operations: vec![],
+                domain_tags_allow: vec![],
+                domain_tags_deny: vec![],
+                fact_types: vec![],
             }],
             from_file: false,
         }
@@ -98,9 +119,9 @@ pub fn evaluate_policy(state: &PolicyState, request: &PolicyRequest) -> PolicyDe
     }
 }
 
-/// Check if a rule matches a request.
+/// Check if a rule matches a request (six-condition match).
 fn matches_rule(rule: &PolicyRule, request: &PolicyRequest) -> bool {
-    // Match access_type
+    // 1. Match access_type (existing)
     if rule.access_type != "*" {
         let rule_at = match rule.access_type.as_str() {
             "read" => AccessType::Read,
@@ -113,7 +134,7 @@ fn matches_rule(rule: &PolicyRule, request: &PolicyRequest) -> bool {
         }
     }
 
-    // Match agent
+    // 2. Match agent (existing)
     if rule.agent != "*" {
         match &request.agent_id {
             Some(agent_id) => {
@@ -121,7 +142,47 @@ fn matches_rule(rule: &PolicyRule, request: &PolicyRequest) -> bool {
                     return false;
                 }
             }
-            None => return false, // rule requires specific agent but request has none
+            None => return false,
+        }
+    }
+
+    // 3. Match operations: empty = no restriction; otherwise request.operation must match any
+    if !rule.operations.is_empty()
+        && !rule.operations.iter().any(|p| glob_match(p, &request.operation))
+    {
+        return false;
+    }
+
+    // 4. domain_tags_allow: empty = no restriction; otherwise ALL request tags must match
+    //    at least one allow pattern. Empty request tags pass vacuously.
+    if !rule.domain_tags_allow.is_empty() {
+        for tag in &request.domain_tags {
+            if !rule.domain_tags_allow.iter().any(|p| glob_match(p, tag)) {
+                return false;
+            }
+        }
+    }
+
+    // 5. domain_tags_deny: if ANY request tag matches any deny pattern, this rule doesn't match
+    if !rule.domain_tags_deny.is_empty() {
+        for tag in &request.domain_tags {
+            if rule.domain_tags_deny.iter().any(|p| glob_match(p, tag)) {
+                return false;
+            }
+        }
+    }
+
+    // 6. fact_types: empty = no restriction; otherwise ALL request.fact_types must be in the list
+    if !rule.fact_types.is_empty() {
+        let known = ["durable", "state", "event"];
+        for ft in &request.fact_types {
+            if !known.contains(&ft.as_str()) {
+                eprintln!("WARN [bulwark] unknown fact_type in request: {}", ft);
+                return false;
+            }
+            if !rule.fact_types.iter().any(|p| glob_match(p, ft)) {
+                return false;
+            }
         }
     }
 
@@ -211,6 +272,8 @@ mod tests {
             fact_id: None,
             agent_id: None,
             operation: "query".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert_eq!(evaluate_policy(&state, &req), PolicyDecision::Allow);
     }
@@ -223,6 +286,8 @@ mod tests {
             fact_id: None,
             agent_id: None,
             operation: "query".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert!(matches!(
             evaluate_policy(&state, &req),
@@ -240,6 +305,10 @@ mod tests {
                     access_type: "read".to_string(),
                     agent: "*".to_string(),
                     reason: None,
+                    operations: vec![],
+                    domain_tags_allow: vec![],
+                    domain_tags_deny: vec![],
+                    fact_types: vec![],
                 },
                 PolicyRule {
                     name: "deny-all".to_string(),
@@ -247,6 +316,10 @@ mod tests {
                     access_type: "*".to_string(),
                     agent: "*".to_string(),
                     reason: Some("blocked".to_string()),
+                    operations: vec![],
+                    domain_tags_allow: vec![],
+                    domain_tags_deny: vec![],
+                    fact_types: vec![],
                 },
             ],
             from_file: true,
@@ -257,6 +330,8 @@ mod tests {
             fact_id: None,
             agent_id: None,
             operation: "query".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert_eq!(evaluate_policy(&state, &read_req), PolicyDecision::Allow);
 
@@ -265,6 +340,8 @@ mod tests {
             fact_id: None,
             agent_id: None,
             operation: "compile".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert!(matches!(
             evaluate_policy(&state, &write_req),
@@ -290,6 +367,10 @@ mod tests {
                 access_type: "write".to_string(),
                 agent: "*".to_string(),
                 reason: Some("no writes allowed".to_string()),
+                operations: vec![],
+                domain_tags_allow: vec![],
+                domain_tags_deny: vec![],
+                fact_types: vec![],
             }],
             from_file: true,
         };
@@ -298,6 +379,8 @@ mod tests {
             fact_id: None,
             agent_id: None,
             operation: "compile".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         match evaluate_policy(&state, &req) {
             PolicyDecision::Deny { rule_name, reason } => {
@@ -365,6 +448,8 @@ reason = "read-only mode"
             fact_id: None,
             agent_id: Some("agent-1".to_string()),
             operation: "tier3".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert!(matches!(
             evaluate_policy(&state, &req),
@@ -382,6 +467,10 @@ reason = "read-only mode"
                     access_type: "*".to_string(),
                     agent: "untrusted-*".to_string(),
                     reason: Some("untrusted agent".to_string()),
+                    operations: vec![],
+                    domain_tags_allow: vec![],
+                    domain_tags_deny: vec![],
+                    fact_types: vec![],
                 },
                 PolicyRule {
                     name: "allow-all".to_string(),
@@ -389,6 +478,10 @@ reason = "read-only mode"
                     access_type: "*".to_string(),
                     agent: "*".to_string(),
                     reason: None,
+                    operations: vec![],
+                    domain_tags_allow: vec![],
+                    domain_tags_deny: vec![],
+                    fact_types: vec![],
                 },
             ],
             from_file: true,
@@ -399,6 +492,8 @@ reason = "read-only mode"
             fact_id: None,
             agent_id: Some("trusted-agent".to_string()),
             operation: "query".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert_eq!(evaluate_policy(&state, &trusted_req), PolicyDecision::Allow);
 
@@ -407,6 +502,8 @@ reason = "read-only mode"
             fact_id: None,
             agent_id: Some("untrusted-bot".to_string()),
             operation: "query".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![],
         };
         assert!(matches!(
             evaluate_policy(&state, &untrusted_req),

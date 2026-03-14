@@ -13,6 +13,8 @@ struct ConfigFile {
     access_tracking: AccessTrackingSection,
     #[serde(default)]
     ontology: OntologySection,
+    #[serde(default)]
+    audit: AuditSection,
 }
 
 /// The `[query]` section of the config file.
@@ -48,13 +50,58 @@ struct AccessTrackingSection {
 #[derive(Debug, Default, Deserialize)]
 struct OntologySection {
     file: Option<String>,
+    expansion_depth: Option<u8>,
+}
+
+/// The `[audit]` section of the config file.
+#[derive(Debug, Default, Deserialize)]
+struct AuditSection {
+    max_log_bytes: Option<u64>,
+    siem_endpoint: Option<String>,
+    siem_token_env: Option<String>,
+    siem_required: Option<bool>,
 }
 
 /// Ontology configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OntologyConfig {
     /// Path to the ontology JSON file. Default: `.brv/ontology.json`.
     pub file: Option<PathBuf>,
+    /// Expansion depth for query token enrichment. 0 = no expansion; max = 3.
+    pub expansion_depth: u8,
+}
+
+impl Default for OntologyConfig {
+    fn default() -> Self {
+        OntologyConfig {
+            file: None,
+            expansion_depth: 1,
+        }
+    }
+}
+
+/// Audit log configuration.
+#[derive(Debug, Clone)]
+pub struct AuditConfig {
+    /// Maximum audit log size in bytes before rotation. 0 = no rotation.
+    pub max_log_bytes: u64,
+    /// SIEM endpoint URL. None = SIEM disabled.
+    pub siem_endpoint: Option<String>,
+    /// Name of env var holding the SIEM bearer token.
+    pub siem_token_env: Option<String>,
+    /// If true, `new_from_config()` fails at startup when SIEM endpoint is unreachable.
+    pub siem_required: bool,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        AuditConfig {
+            max_log_bytes: 52_428_800, // 50 MB
+            siem_endpoint: None,
+            siem_token_env: None,
+            siem_required: false,
+        }
+    }
 }
 
 /// Compile-time configuration.
@@ -133,6 +180,7 @@ pub struct WorkspaceConfig {
     pub access_tracking: AccessTrackingConfig,
     pub tier3: Tier3Config,
     pub ontology: OntologyConfig,
+    pub audit: AuditConfig,
 }
 
 /// Hard cap for causal max_hops. Values above this are clamped.
@@ -150,6 +198,7 @@ impl Default for WorkspaceConfig {
             access_tracking: AccessTrackingConfig::default(),
             tier3: Tier3Config::default(),
             ontology: OntologyConfig::default(),
+            audit: AuditConfig::default(),
         }
     }
 }
@@ -226,6 +275,27 @@ pub fn load_workspace_config(brv_dir: &Path) -> WorkspaceConfig {
         },
         ontology: OntologyConfig {
             file: file.ontology.file.map(PathBuf::from),
+            expansion_depth: {
+                let raw = file.ontology.expansion_depth.unwrap_or(1);
+                if raw > 3 {
+                    eprintln!(
+                        "WARN: ontology.expansion_depth {} exceeds maximum of 3, clamping to 3",
+                        raw
+                    );
+                    3
+                } else {
+                    raw
+                }
+            },
+        },
+        audit: AuditConfig {
+            max_log_bytes: file
+                .audit
+                .max_log_bytes
+                .unwrap_or(AuditConfig::default().max_log_bytes),
+            siem_endpoint: file.audit.siem_endpoint,
+            siem_token_env: file.audit.siem_token_env,
+            siem_required: file.audit.siem_required.unwrap_or(false),
         },
     }
 }

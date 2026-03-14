@@ -525,7 +525,7 @@ fn enrichment_temporal_hits_have_titles() {
     let r = engram_query::query(
         tmp.path(),
         "what is the current enrichment state",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,
@@ -573,7 +573,7 @@ fn enrichment_temporal_score_not_bm25() {
     let r = engram_query::query(
         tmp.path(),
         "what is the current deployment status",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,
@@ -740,7 +740,7 @@ The API gateway is currently handling 5000 requests per second.
     let r = engram_query::query(
         tmp.path(),
         "API gateway requests",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,
@@ -807,7 +807,7 @@ fn pipeline_dangling_edge_warning() {
     let r = engram_query::query(
         tmp.path(),
         "dangling edge fact",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,
@@ -874,7 +874,7 @@ fn pipeline_cycle_warning() {
     let r = engram_query::query(
         tmp.path(),
         "cycle fact alpha",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,
@@ -888,7 +888,7 @@ fn pipeline_cycle_warning() {
     let r = engram_query::query(
         tmp.path(),
         "cycle fact beta",
-        engram_query::QueryOptions { max_results: 10, min_score: 0.0 },
+        engram_query::QueryOptions { max_results: 10, min_score: 0.0, domain_tags: vec![] },
         &mut cache,
         &mut fuzzy,
         &bulwark,

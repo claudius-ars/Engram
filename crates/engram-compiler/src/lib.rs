@@ -86,9 +86,15 @@ pub fn compile_context_tree_with_config(
             fact_id: None,
             agent_id: None,
             operation: "compile".to_string(),
+            domain_tags: vec![],
+            fact_types: vec![], // fact type unknown at compile time; enforcement requires curate scope
         };
 
-        if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
+        let t0 = std::time::Instant::now();
+        let decision = bulwark.check(&request);
+        let duration_ms = t0.elapsed().as_millis() as u64;
+        bulwark.audit(&request, &decision, duration_ms);
+        if let PolicyDecision::Deny { reason, .. } = decision {
             return CompileResult::denied(reason);
         }
     }
@@ -216,6 +222,10 @@ pub fn compile_context_tree_with_config(
             let f_access_count = schema.get_field("access_count").ok();
             match (f_source_path_hash, f_access_count) {
                 (sph, Some(ac)) => {
+                    // Open the *committed* index read-only to read previous-cycle
+                    // cumulative access counts. This is a separate reader from the
+                    // IndexWriter that will be opened later — it sees the snapshot
+                    // before this compile cycle writes new documents.
                     match tantivy::Index::open_in_dir(&tantivy_dir) {
                         Ok(idx) => access_log_apply::read_existing_access_counts(
                             &idx,
@@ -393,8 +403,14 @@ pub fn compile_incremental(
         fact_id: None,
         agent_id: None,
         operation: "compile".to_string(),
+        domain_tags: vec![],
+        fact_types: vec![], // fact type unknown at compile time; enforcement requires curate scope
     };
-    if let PolicyDecision::Deny { reason, .. } = bulwark.check(&request) {
+    let t0 = std::time::Instant::now();
+    let decision = bulwark.check(&request);
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    bulwark.audit(&request, &decision, duration_ms);
+    if let PolicyDecision::Deny { reason, .. } = decision {
         return CompileResult::denied(reason);
     }
 

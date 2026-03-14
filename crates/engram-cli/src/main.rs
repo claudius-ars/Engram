@@ -35,15 +35,35 @@ enum Commands {
     /// Query the memory index
     Query {
         /// The query string to search for
-        query_string: String,
+        query_string: Option<String>,
+        /// Verify the audit log hash chain and exit
+        #[arg(long)]
+        verify_audit: bool,
+        /// Path to the audit log (default: .brv/audit/engram.log)
+        #[arg(long, default_value = ".brv/audit/engram.log")]
+        log: String,
     },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let bulwark = BulwarkHandle::new_stub();
     let root = std::env::current_dir()?;
-    let config = load_workspace_config(&root.join(".brv"));
+    let brv_dir = root.join(".brv");
+    let config = load_workspace_config(&brv_dir);
+
+    // new_from_config handles missing bulwark.toml gracefully (allow-all fallback)
+    let bulwark = BulwarkHandle::new_from_config(
+        brv_dir.join("bulwark.toml"),
+        Some(brv_dir.join("audit")),
+        &config.audit,
+    );
+
+    bulwark.verify_siem_reachability()
+        .unwrap_or_else(|e| {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        });
+
     let mut cache = ExactCache::new(config.exact_cache_ttl_secs);
     let mut fuzzy_cache = FuzzyCache::new(100);
 
@@ -181,7 +201,26 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Query { query_string } => {
+        Commands::Query { query_string, verify_audit, log } => {
+            if verify_audit {
+                let log_path = std::path::Path::new(&log);
+                match engram_bulwark::verify_audit_chain(log_path) {
+                    Ok(n) => {
+                        println!("Audit chain valid: {} entries", n);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("Audit chain verification failed: {:?}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            let query_string = query_string.unwrap_or_else(|| {
+                eprintln!("Error: query string required (or use --verify-audit)");
+                std::process::exit(1);
+            });
+
             let options = QueryOptions::default();
 
             match engram_query::query(&root, &query_string, options, &mut cache, &mut fuzzy_cache, &bulwark, &config) {

@@ -23,6 +23,7 @@ fn make_hit(id: &str, title: Option<&str>, fact_type: &str) -> QueryHit {
         maturity: 1.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     }
 }
 

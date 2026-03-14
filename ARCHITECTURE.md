@@ -311,7 +311,7 @@ documents the key decisions and rationale.
 
 ### Non-Reversible Decisions (Phase 4)
 
-**NRD-18: Tier 3 uses blocking HTTP (`reqwest::blocking`).**
+**NRD-18: Tier 3 uses blocking HTTP (`reqwest::blocking`).** *(Closed — accepted.)*
 The query pipeline is synchronous. Introducing an async runtime
 solely for one HTTP call adds complexity with no benefit for the
 CLI use case. Switching to async later requires either making the
@@ -362,6 +362,14 @@ The access log uses generation-aware filtering: entries from generation
 N-2 or older are skipped during tally at generation N. This prevents
 stale log entries (surviving a failed truncation) from inflating counts.
 
+Access counts are **cumulative across compile cycles**. At Step 2c of
+`compile_context_tree_with_config()`, the compiler opens the previously
+committed Tantivy index read-only and reads each fact's existing
+`access_count` via FAST column readers. These previous counts are added
+to the current-cycle delta from `tally_access_log()` before writing the
+new index. The `importance` field (FAST + STORED in schema v3) is
+similarly preserved across compiles.
+
 ### Tier 3 LLM Pre-fetch
 
 Tier 3 fires after Tier 2.5b (temporal) when:
@@ -403,19 +411,63 @@ and uses `BulwarkHandle` at three enforcement points:
 - `compile_context_tree()` — checks `AccessType::Write` before indexing
 - `tier3::run_tier3()` — checks `AccessType::LlmCall` before API call
 
-The `BulwarkHandle` is still a stub: `new_stub()` allows all,
-`new_denying()` denies all. A real rule-based policy engine is
-deferred to Phase 5.
+## Phase 5 Architecture
+
+Phase 5 replaced the Bulwark stub with a real TOML-backed policy
+engine, added an append-only SHA-256 hash-chained audit log, and
+introduced causal/temporal query tiers.
+
+### Bulwark Policy Engine (Phase 5)
+
+`BulwarkHandle` now has three construction modes:
+- `new_stub()` — allow-all (tests, default)
+- `new_denying()` — deny-all (tests)
+- `new_from_config(policy_path, audit_dir)` — TOML-backed with hot-reload
+
+**Policy rules** are loaded from `bulwark.toml` as `PolicyFile`
+(TOML-deserialized `Vec<PolicyRule>`). Each rule matches on
+`access_type`, `fact_id`, and `agent_id` using glob patterns
+(`*`, `prefix*`, exact). Evaluation is first-match with a
+fail-closed default deny when no rule matches.
+
+**Phase 5 scope**: `PolicyRule` currently matches on `access_type`,
+`fact_id`, and `agent_id`. The `operation` field on `PolicyRequest`
+is not yet used for rule matching — it is recorded in audit events
+for forensic use. Operation-based matching is a Phase 6 candidate.
+
+**Hot-reload**: A background thread polls the policy file every 30s,
+comparing file content with the previous read. On change, the
+`PolicyState` behind `Arc<RwLock<_>>` is swapped atomically.
+
+**Audit log**: When `audit_dir` is provided, `BulwarkHandle` writes
+NDJSON events to `audit/engram.log`. Each entry includes a SHA-256
+`prev_hash` of the preceding line, forming a tamper-evident chain.
+File locking uses `fs2` exclusive locks. The `audit()` method is
+non-fatal: write failures are logged to stderr but never propagated.
+
+**Known limitation — `duration_ms`**: The `duration_ms` field in
+`AuditEvent` is currently always 0 at all three enforcement points.
+The policy check itself is sub-microsecond; the field exists for
+future use when end-to-end operation timing is added.
+
+### QueryHit.answer Field
+
+`QueryHit` (defined in `engram-query::result`) has an `answer: Option<String>`
+field for LLM-synthesized responses. Tier 3 populates this field
+directly instead of encoding the answer as a `"synthesis:"` tag prefix.
+The field is `#[serde(default, skip_serializing_if = "Option::is_none")]`
+for backward-compatible JSON serialization — old JSON without `answer`
+deserializes cleanly to `None`.
 
 ## Remaining Extension Points
 
 | Item | Current State | Target Phase |
 |---|---|---|
 | Tier 1 TTL | Hardcoded 60s | Phase 5 (configurable) |
-| Bulwark real policy engine | Stub (allow/deny-all) | Phase 5 |
+| Bulwark operation-based matching | Not yet in rule evaluation | Phase 6 |
 | ExactCache/FuzzyCache thread safety | Single-threaded | Phase 5 |
 | Schema migration logic | Wipe-and-rebuild | Phase 5 |
-| O(1) temporal enrichment wiring | DocAddressMap built but unused | Phase 5 |
+| O(1) temporal enrichment wiring | DocAddressMap built, used in causal/temporal | Done |
 
 ## Known Limitations
 
@@ -433,6 +485,10 @@ deferred to Phase 5.
   `source_path`. This affects Tier 3 (reads filesystem) and prevents
   post-write Tantivy document patching (NRD-19).
 
-- **Bulwark is a stub.** The policy engine only supports allow-all
-  and deny-all modes. Rule-based evaluation from `bulwark.toml` is
-  not yet implemented.
+- **`duration_ms` is always 0.** The audit event `duration_ms` field
+  is populated as 0 at all enforcement points. End-to-end operation
+  timing has not been wired yet.
+
+- **`QueryHit` lives in `engram-query`**, not `engram-core`. It is
+  defined in `crates/engram-query/src/result.rs`. Downstream crates
+  that need `QueryHit` depend on `engram-query`.

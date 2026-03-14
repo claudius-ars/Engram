@@ -140,6 +140,7 @@ pub fn temporal_record_to_query_hit(record: &TemporalRecord) -> QueryHit {
         maturity: 0.0,
         access_count: 0,
         update_count: 0,
+        answer: None,
     }
 }
 
