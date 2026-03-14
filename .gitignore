@@ -18,3 +18,6 @@
 
 # Access log (operational artifact, truncated on compile)
 .brv/index/access.log
+
+# Eval results (generated at runtime, not committed)
+eval/results/

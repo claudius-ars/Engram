@@ -261,8 +261,11 @@ fn test_merge_deduplicates_by_source_path_hash() {
 
     // Should have 2 hits: temporal version of shared.md + other.md
     assert_eq!(merged.len(), 2, "should deduplicate shared.md, keep other.md");
-    // First hit should be temporal (score = 1.0)
-    assert_eq!(merged[0].score, 1.0, "first hit should be temporal");
+    // First hit should be temporal. Score = TEMPORAL_BOOST (2.0) because the
+    // sentinel source_path (<temporal:HASH>) doesn't match BM25 entries by hash.
+    // In production, enrichment replaces the sentinel with the real path before
+    // merge, so BM25 relevance is picked up. Here we verify the boost baseline.
+    assert_eq!(merged[0].score, 2.0, "first hit should be temporal with boost");
     // Second hit should be the non-duplicate BM25 hit
     assert_eq!(merged[1].source_path, "other.md");
 }

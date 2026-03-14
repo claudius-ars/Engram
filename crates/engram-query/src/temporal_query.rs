@@ -12,6 +12,7 @@ pub const CACHE_TIER_TEMPORAL: u8 = 25;
 /// Temporal signal words. Multi-word entries use substring match;
 /// single-word entries require word boundary matching.
 pub const TEMPORAL_SIGNAL_WORDS: &[&str] = &[
+    "active",
     "current",
     "currently",
     "latest",
@@ -144,14 +145,36 @@ pub fn temporal_record_to_query_hit(record: &TemporalRecord) -> QueryHit {
     }
 }
 
+/// Boost added to BM25 scores for facts that also appear in the
+/// temporal tier, ensuring they rank above pure-BM25 hits while
+/// preserving relevance ordering within the temporal block.
+const TEMPORAL_BOOST: f64 = 2.0;
+
 /// Merge temporal hits (Tier 2.5) and BM25 hits (Tier 2), deduplicating
-/// by source_path_hash. Temporal hits come first; if a fact appears in
-/// both, the temporal version is kept and the BM25 duplicate is dropped.
+/// by source_path_hash. Temporal hits are re-scored using their BM25
+/// relevance plus a boost so they rank above pure-BM25 hits but are
+/// ordered by query relevance within the temporal block.
 pub fn merge_temporal_and_bm25(
-    temporal_hits: Vec<QueryHit>,
+    mut temporal_hits: Vec<QueryHit>,
     temporal_hashes: &HashSet<u64>,
     bm25_hits: Vec<QueryHit>,
 ) -> Vec<QueryHit> {
+    // Build a lookup of BM25 scores by source_path hash
+    let bm25_scores: std::collections::HashMap<u64, f64> = bm25_hits
+        .iter()
+        .map(|hit| (fnv1a_64(hit.source_path.as_bytes()), hit.score))
+        .collect();
+
+    // Re-score temporal hits: BM25 relevance + boost
+    for hit in &mut temporal_hits {
+        let hash = fnv1a_64(hit.source_path.as_bytes());
+        let bm25 = bm25_scores.get(&hash).copied().unwrap_or(0.0);
+        hit.score = bm25 + TEMPORAL_BOOST;
+    }
+
+    // Sort temporal hits by score descending (most relevant first)
+    temporal_hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
     let mut merged = Vec::with_capacity(temporal_hits.len() + bm25_hits.len());
     merged.extend(temporal_hits);
 

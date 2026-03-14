@@ -1,0 +1,202 @@
+[
+  {
+    "id": "q01",
+    "query": "Well B-7 sustained casing pressure",
+    "tier_hint": "bm25",
+    "must_include": ["annular_pressure_b7"],
+    "should_include": ["well_b7_bleedoff"],
+    "must_exclude": []
+  },
+  {
+    "id": "q02",
+    "query": "cement bond log interpretation CBL VDL",
+    "tier_hint": "bm25",
+    "must_include": ["cement_bond_evaluation"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q03",
+    "query": "Redis license change BSD dual-license",
+    "tier_hint": "bm25",
+    "must_include": ["redis_license_change"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q04",
+    "query": "PostgreSQL incremental backup pg_basebackup",
+    "tier_hint": "bm25",
+    "must_include": ["postgres_incremental_backup"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q05",
+    "query": "Well A-14 pressure test results March 2024",
+    "tier_hint": "bm25",
+    "must_include": ["pressure_test_a14"],
+    "should_include": ["pressure_test_a14_followup"],
+    "must_exclude": []
+  },
+  {
+    "id": "q06",
+    "query": "Rust data pipeline rewrite throughput",
+    "tier_hint": "bm25",
+    "must_include": ["rust_data_pipeline"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q07",
+    "query": "network segmentation VLAN mTLS service mesh",
+    "tier_hint": "bm25",
+    "must_include": ["network_segmentation"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q08",
+    "query": "dependency security audit CVE patching",
+    "tier_hint": "bm25",
+    "must_include": ["dependency_audit_q1"],
+    "should_include": [],
+    "must_exclude": []
+  },
+  {
+    "id": "q09",
+    "query": "current production deployment version status",
+    "tier_hint": "temporal",
+    "must_include": ["current_deployment_v241"],
+    "should_include": [],
+    "must_exclude": ["drilling_permit_block7"]
+  },
+  {
+    "id": "q10",
+    "query": "latest production forecast active wells",
+    "tier_hint": "temporal",
+    "must_include": ["production_forecast_q2"],
+    "should_include": [],
+    "must_exclude": ["drilling_permit_block7"]
+  },
+  {
+    "id": "q11",
+    "query": "active well integrity issues requiring monitoring",
+    "tier_hint": "temporal",
+    "must_include": ["annular_pressure_b7"],
+    "should_include": ["well_integrity_policy"],
+    "must_exclude": ["drilling_permit_block7"]
+  },
+  {
+    "id": "q12",
+    "query": "current technical debt high priority items",
+    "tier_hint": "temporal",
+    "must_include": ["tech_debt_registry"],
+    "should_include": [],
+    "must_exclude": ["drilling_permit_block7"]
+  },
+  {
+    "id": "q13",
+    "query": "history of events since February 2024",
+    "tier_hint": "temporal",
+    "must_include": [],
+    "should_include": ["incident_db_outage", "pressure_test_a14", "cluster_migration_q1"],
+    "must_exclude": ["drilling_permit_block7"]
+  },
+  {
+    "id": "q14",
+    "query": "what caused the sustained casing pressure on B-7",
+    "tier_hint": "causal",
+    "must_include": ["annular_pressure_b7"],
+    "should_include": ["well_integrity_policy"],
+    "must_exclude": []
+  },
+  {
+    "id": "q15",
+    "query": "why did the database outage happen in February",
+    "tier_hint": "causal",
+    "must_include": ["incident_db_outage"],
+    "should_include": ["storage_capacity_policy"],
+    "must_exclude": []
+  },
+  {
+    "id": "q16",
+    "query": "what led to the backup restoration drill",
+    "tier_hint": "causal",
+    "must_include": ["backup_restoration_test"],
+    "should_include": ["incident_db_outage"],
+    "must_exclude": []
+  },
+  {
+    "id": "q17",
+    "query": "root cause of the HSE near-miss incident",
+    "tier_hint": "causal",
+    "must_include": ["hse_incident_march2024"],
+    "should_include": ["pressure_test_a14"],
+    "must_exclude": []
+  },
+  {
+    "id": "q18",
+    "query": "what caused changes to kubernetes pod scheduling",
+    "tier_hint": "causal",
+    "must_include": ["kubernetes_scheduling"],
+    "should_include": ["cluster_migration_q1"],
+    "must_exclude": []
+  },
+  {
+    "id": "q19",
+    "query": "upstream events leading to Well B-7 bleed-off procedure",
+    "tier_hint": "causal",
+    "must_include": ["well_b7_bleedoff"],
+    "should_include": ["annular_pressure_b7"],
+    "must_exclude": []
+  },
+  {
+    "id": "q20",
+    "query": "well integrity inspection and monitoring requirements",
+    "tier_hint": "mixed",
+    "must_include": ["well_integrity_policy"],
+    "should_include": ["corrosion_monitoring_program", "cement_bond_evaluation"],
+    "must_exclude": []
+  },
+  {
+    "id": "q21",
+    "query": "pressure testing procedures and safety",
+    "tier_hint": "mixed",
+    "must_include": ["hse_incident_march2024"],
+    "should_include": ["pressure_test_a14", "well_integrity_policy"],
+    "must_exclude": []
+  },
+  {
+    "id": "q22",
+    "query": "database reliability and disaster recovery",
+    "tier_hint": "mixed",
+    "must_include": [],
+    "should_include": ["incident_db_outage", "backup_restoration_test", "storage_capacity_policy"],
+    "must_exclude": []
+  },
+  {
+    "id": "q23",
+    "query": "container security and image management",
+    "tier_hint": "mixed",
+    "must_include": ["docker_image_policy"],
+    "should_include": ["dependency_audit_q1"],
+    "must_exclude": []
+  },
+  {
+    "id": "q24",
+    "query": "Rust programming patterns and best practices",
+    "tier_hint": "mixed",
+    "must_include": ["rust_error_handling"],
+    "should_include": ["rust_data_pipeline"],
+    "must_exclude": []
+  },
+  {
+    "id": "q25",
+    "query": "regulatory compliance and audit findings",
+    "tier_hint": "mixed",
+    "must_include": ["regulatory_audit_2024"],
+    "should_include": ["well_integrity_policy", "drilling_permit_block7"],
+    "must_exclude": []
+  }
+]
