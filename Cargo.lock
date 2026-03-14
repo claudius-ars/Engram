@@ -516,6 +516,7 @@ dependencies = [
  "engram-compiler",
  "engram-core",
  "engram-query",
+ "serde_json",
 ]
 
 [[package]]

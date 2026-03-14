@@ -1,0 +1,9 @@
+{
+  "name": "engram",
+  "version": "0.1.0",
+  "description": "Memory-augmented Claude Code sessions powered by Engram. Automatically retrieves relevant facts from the project knowledge base on every prompt.",
+  "hooks": "./hooks/hooks.json",
+  "skills": [
+    "./skills/memory-recall/SKILL.md"
+  ]
+}
