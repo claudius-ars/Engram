@@ -101,32 +101,39 @@ cp target/release/engram ~/.local/bin/
 
 ## Getting Started
 
+### With Claude Code (zero setup)
+
+Install the plugin once and Engram works automatically in every
+project. See [Claude Code Integration](#claude-code-integration)
+for installation. After that:
+
+1. Open Claude Code in any project: `claude`
+2. Send your first prompt — Engram initializes the workspace
+   silently in the background
+3. Curate facts as you work to build up project memory:
+   ```bash
+   engram curate --sync "Brief description of this project"
+   ```
+
+The workspace (`.brv/`) is created automatically on first use.
+No manual initialization needed.
+
+### Without Claude Code
+
 Three steps to go from a fresh project to a working Engram workspace.
 
-### Step 1 — Initialize a workspace
-
-If you have the Claude Code plugin installed, the workspace initializes
-automatically on your first prompt in any project. You can also
-initialize manually:
+**Step 1 — Initialize a workspace**
 
 ```bash
 cd your-project
 engram init
 ```
 
-Then add your first fact:
+This creates `.brv/context-tree/`, writes a default `engram.toml`,
+and builds an empty index. The workspace is immediately ready to
+query and curate.
 
-```bash
-engram curate --sync "Brief description of this project and its purpose"
-```
-
-This writes the fact as a `.md` file, compiles the index, and makes
-it immediately queryable.
-
-### Step 2 — Add more facts
-
-Add facts by curating from the command line or by writing `.md` files
-directly:
+**Step 2 — Add facts**
 
 ```bash
 # Curate from the command line
@@ -148,16 +155,20 @@ EOF
 engram compile
 ```
 
-### Step 3 — Query the index
+**Step 3 — Query the index**
 
 ```bash
 engram query "what is our versioning policy"
 ```
 
 From here, run `engram compile --watch` to keep the index up to date
-as you add facts, or install the Claude Code plugin to get automatic
-memory injection in every coding session (see
-[Claude Code Integration](#claude-code-integration)).
+as you add facts.
+
+### Version control
+
+Add `.brv/index/` to your `.gitignore` — it is a derived artifact
+that can be rebuilt with `engram compile`. Keep `.brv/context-tree/`
+and `.brv/engram.toml` in version control.
 
 ## Usage
 
@@ -178,6 +189,21 @@ engram compile --watch
 # Run LLM classification on unclassified facts
 engram compile --classify
 ```
+
+### Init
+
+Initialize an Engram workspace in the current directory:
+
+```bash
+engram init
+```
+
+Creates `.brv/context-tree/`, writes a default `engram.toml`, and
+builds an empty index. Safe to run multiple times — does nothing if
+the workspace already exists.
+
+This step is optional when using the Claude Code plugin, which
+initializes the workspace automatically on first use.
 
 ### Query
 
@@ -525,8 +551,7 @@ conversation context.
 
 ### Quick Start
 
-Add the hooks to `.claude/settings.json` in your project root
-(create the file if it doesn't exist):
+**Step 1 — Add hooks to `~/.claude/settings.json`** (one-time setup):
 
 ```json
 {
@@ -557,25 +582,33 @@ Add the hooks to `.claude/settings.json` in your project root
 ```
 
 Replace `/absolute/path/to/engram-claudecode` with the actual path
-to your Engram installation. Absolute paths are required — Claude Code
-resolves hook commands from its own working directory, not the project
-root.
+to your Engram installation. Restart Claude Code after editing.
 
-Restart Claude Code after editing `settings.json` for the hooks to
-take effect.
+**Step 2 — Open Claude Code in any project:**
+
+```bash
+claude
+```
+
+That's it. On your first prompt, Engram automatically initializes
+a `.brv/` workspace in the project directory. No manual setup needed.
+Facts accumulate as you curate them during sessions.
 
 ### What the Plugin Provides
 
 | Component | Trigger | What it does |
 |-----------|---------|--------------|
-| **Retrieval hook** | Every prompt | Queries the index, injects matching facts as context |
+| **Retrieval hook** | Every prompt | Auto-initializes workspace if needed, queries the index, injects matching facts as context |
 | **Session end hook** | Session stop | Reminds user to curate new facts |
 | **Memory recall skill** | On demand | Query or save facts explicitly via `engram query` / `engram curate` |
 
 ### Requirements
 
 - `engram` binary in PATH — see [Installation](#installation)
-- An initialized `.brv/` workspace with compiled index
+- Claude Code installed with hooks configured in `~/.claude/settings.json`
+
+No per-project setup needed. The plugin creates `.brv/` workspaces
+automatically on first use.
 
 See [`engram-claudecode/README.md`](engram-claudecode/README.md) for full
 installation and configuration details.
