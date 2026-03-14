@@ -57,12 +57,76 @@ cd Engram
 cargo build --release
 ```
 
-The binary is at `target/release/engram`.
+The binary is at `target/release/engram`. Add it to your PATH:
+
+```bash
+# macOS / Linux
+cp target/release/engram ~/.local/bin/
+# or
+sudo cp target/release/engram /usr/local/bin/
+
+# Verify
+engram --help
+```
 
 ### Prerequisites
 
 - Rust 1.75+ (edition 2021)
-- Optional: `ANTHROPIC_API_KEY` environment variable for LLM classification and Tier 3 synthesis
+- Optional: `ANTHROPIC_API_KEY` environment variable for LLM
+  classification and Tier 3 synthesis
+
+## Getting Started
+
+Three steps to go from a fresh project to a working Engram workspace.
+
+### Step 1 — Initialize a workspace
+
+Navigate to your project and create the first fact. Engram initializes
+the `.brv/` workspace automatically on first use:
+
+```bash
+cd your-project
+engram curate --sync "Brief description of this project and its purpose"
+```
+
+This creates `.brv/context-tree/`, writes the fact as a `.md` file,
+compiles the index, and makes the fact immediately queryable.
+
+### Step 2 — Add more facts
+
+Add facts by curating from the command line or by writing `.md` files
+directly:
+
+```bash
+# Curate from the command line
+engram curate --sync "We use Rust for all new services. Decision made Q1 2024."
+
+# Or write a .md file and compile
+cat > .brv/context-tree/api-versioning.md << 'EOF'
+---
+title: "API Versioning Policy"
+factType: durable
+tags: [api, versioning]
+---
+
+## Raw Concept
+
+All APIs use URL path versioning (/v1/, /v2/). Deprecation window is
+12 months. Breaking changes require a new major version.
+EOF
+engram compile
+```
+
+### Step 3 — Query the index
+
+```bash
+engram query "what is our versioning policy"
+```
+
+From here, run `engram compile --watch` to keep the index up to date
+as you add facts, or install the Claude Code plugin to get automatic
+memory injection in every coding session (see
+[Claude Code Integration](#claude-code-integration)).
 
 ## Usage
 
@@ -420,6 +484,38 @@ internally.
   compile; run `engram compile` to populate it
 - Any ByteRover-specific plugin configuration — Engram has its own
   `engram.toml` format
+
+## Claude Code Integration
+
+Engram ships with a Claude Code plugin that gives Claude persistent,
+project-scoped memory. Once installed, every prompt automatically retrieves
+relevant facts from the knowledge base and injects them into the
+conversation context.
+
+### Quick Start
+
+```bash
+# Install the plugin
+claude --plugin-dir ./engram-claudecode
+
+# Or manually wire the hooks (see engram-claudecode/README.md)
+```
+
+### What the Plugin Provides
+
+| Component | Trigger | What it does |
+|-----------|---------|--------------|
+| **Retrieval hook** | Every prompt | Queries the index, injects matching facts as context |
+| **Session end hook** | Session stop | Reminds user to curate new facts |
+| **Memory recall skill** | On demand | Query or save facts explicitly via `engram query` / `engram curate` |
+
+### Requirements
+
+- `engram` binary in PATH — see [Installation](#installation)
+- An initialized `.brv/` workspace with compiled index
+
+See [`engram-claudecode/README.md`](engram-claudecode/README.md) for full
+installation and configuration details.
 
 ## Testing
 

@@ -16,11 +16,7 @@ fn permissive_config() -> WorkspaceConfig {
 }
 
 fn default_query_options() -> QueryOptions {
-    QueryOptions {
-        max_results: 10,
-        min_score: 0.0,
-        domain_tags: vec![],
-    }
+    QueryOptions::default()
 }
 
 fn query_helper(

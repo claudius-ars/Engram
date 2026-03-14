@@ -10,11 +10,7 @@ use engram_query::{ExactCache, FuzzyCache, QueryOptions, CACHE_TIER_TEMPORAL};
 use common::{compile_clean, compile_incremental, compile_with_classify, durable_fact, event_fact, set_dirty, state_fact, temp_workspace, unclassified_fact, write_fact};
 
 fn default_query_options() -> QueryOptions {
-    QueryOptions {
-        max_results: 10,
-        min_score: 0.0,
-        domain_tags: vec![],
-    }
+    QueryOptions::default()
 }
 
 fn permissive_config() -> WorkspaceConfig {

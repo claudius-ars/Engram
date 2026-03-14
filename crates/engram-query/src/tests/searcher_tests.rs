@@ -131,8 +131,7 @@ fn test_search_max_results() {
     let searcher = BM25Searcher::new(&index_dir);
     let options = QueryOptions {
         max_results: 2,
-        min_score: 0.0,
-        domain_tags: vec![],
+        ..QueryOptions::default()
     };
     let results = searcher
         .search("zebra", &options, &default_config(), &CausalReader::empty(), None, None)

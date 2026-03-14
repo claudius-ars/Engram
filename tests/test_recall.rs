@@ -8,11 +8,7 @@ use engram_query::{ExactCache, FuzzyCache, QueryOptions};
 use common::{compile_clean, durable_fact, temp_workspace, write_fact};
 
 fn default_query_options() -> QueryOptions {
-    QueryOptions {
-        max_results: 10,
-        min_score: 0.0,
-        domain_tags: vec![],
-    }
+    QueryOptions::default()
 }
 
 fn query_helper(

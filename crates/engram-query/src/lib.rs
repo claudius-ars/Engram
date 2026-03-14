@@ -42,6 +42,9 @@ pub struct QueryOptions {
     pub max_results: usize,
     pub min_score: f64,
     pub domain_tags: Vec<String>,
+    /// Agent ID for Bulwark policy evaluation and access log attribution.
+    /// Defaults to "cli" when not specified.
+    pub agent_id: String,
 }
 
 impl Default for QueryOptions {
@@ -50,6 +53,7 @@ impl Default for QueryOptions {
             max_results: 10,
             min_score: 0.0,
             domain_tags: vec![],
+            agent_id: "cli".to_string(),
         }
     }
 }
@@ -107,7 +111,7 @@ pub fn query(
     let request = PolicyRequest {
         access_type: AccessType::Read,
         fact_id: None,
-        agent_id: None,
+        agent_id: Some(options.agent_id.clone()),
         operation: "query".to_string(),
         domain_tags: options.domain_tags.clone(),
         fact_types: vec![], // fact type unknown at query time; enforcement requires curate scope
@@ -314,7 +318,7 @@ pub fn query(
         access_log::append_access_entries(
             &log_path,
             &result.hits,
-            "engram",
+            &options.agent_id,
             generation,
         );
     }

@@ -36,6 +36,12 @@ enum Commands {
     Query {
         /// The query string to search for
         query_string: Option<String>,
+        /// Output format: text (default) or json
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Agent ID for Bulwark policy evaluation (default: "cli")
+        #[arg(long, default_value = "cli")]
+        agent: String,
         /// Verify the audit log hash chain and exit
         #[arg(long)]
         verify_audit: bool,
@@ -204,7 +210,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Query { query_string, verify_audit, log } => {
+        Commands::Query { query_string, format, agent, verify_audit, log } => {
             if verify_audit {
                 let log_path = std::path::Path::new(&log);
                 match engram_bulwark::verify_audit_chain(log_path) {
@@ -224,7 +230,12 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             });
 
-            let options = QueryOptions::default();
+            let options = QueryOptions {
+                agent_id: agent,
+                ..QueryOptions::default()
+            };
+
+            let use_json = format == "json";
 
             match engram_query::query(&root, &query_string, options, &mut cache, &mut fuzzy_cache, &bulwark, &config) {
                 Ok(result) => {
@@ -239,7 +250,9 @@ fn main() -> anyhow::Result<()> {
                                 .unwrap_or_else(|| "unknown".to_string())
                         );
                     }
-                    if result.hits.is_empty() {
+                    if use_json {
+                        print_json_results(&root, &result);
+                    } else if result.hits.is_empty() {
                         println!("No results found.");
                     } else {
                         println!(
@@ -276,4 +289,106 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Read body text from a fact's source `.md` file.
+///
+/// This is intentional display-layer file I/O: the query library does not
+/// store body text in the Tantivy index (NRD-4), so the CLI reads it from
+/// the source file at output time for `--format json`.
+fn read_body(root: &std::path::Path, source_path: &str) -> String {
+    let path = root.join(source_path);
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    // Strip YAML frontmatter (lines between first and second `---`)
+    let mut lines = content.lines();
+    let mut body_lines: Vec<&str> = Vec::new();
+    let mut in_frontmatter = false;
+    let mut frontmatter_ended = false;
+
+    for line in &mut lines {
+        if !frontmatter_ended {
+            if line.trim() == "---" {
+                if !in_frontmatter {
+                    in_frontmatter = true;
+                    continue;
+                } else {
+                    frontmatter_ended = true;
+                    continue;
+                }
+            }
+            if in_frontmatter {
+                continue;
+            }
+        }
+        body_lines.push(line);
+    }
+
+    let body = body_lines.join("\n");
+
+    // Strip leading blank lines
+    let body = body.trim_start_matches('\n');
+
+    // Strip `## Raw Concept` header if it's the first non-blank line
+    let body = if body.starts_with("## Raw Concept") {
+        body.strip_prefix("## Raw Concept")
+            .unwrap_or(body)
+            .trim_start_matches('\n')
+    } else {
+        body
+    };
+
+    let body = body.trim();
+
+    // Truncate to 500 chars at last sentence boundary
+    if body.len() <= 500 {
+        return body.to_string();
+    }
+
+    let truncated = &body[..500];
+    // Find last sentence-ending punctuation
+    if let Some(pos) = truncated.rfind(|c| c == '.' || c == '!' || c == '?') {
+        format!("{}...", &truncated[..=pos])
+    } else {
+        // No sentence boundary found — truncate at last space
+        if let Some(pos) = truncated.rfind(' ') {
+            format!("{}...", &truncated[..pos])
+        } else {
+            format!("{}...", truncated)
+        }
+    }
+}
+
+/// Extract fact_id from source_path (filename stem).
+fn fact_id_from_path(source_path: &str) -> String {
+    std::path::Path::new(source_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// Print query results as NDJSON (one JSON object per line).
+fn print_json_results(root: &std::path::Path, result: &engram_query::QueryResult) {
+    for (i, hit) in result.hits.iter().enumerate() {
+        let body = read_body(root, &hit.source_path);
+        let fact_id = fact_id_from_path(&hit.source_path);
+
+        let obj = serde_json::json!({
+            "rank": i + 1,
+            "score": hit.score,
+            "title": hit.title.as_deref().unwrap_or(""),
+            "fact_id": fact_id,
+            "source_path": hit.source_path,
+            "fact_type": hit.fact_type,
+            "tags": hit.tags,
+            "body": body,
+            "cache_tier": result.meta.cache_tier,
+            "answer": hit.answer,
+        });
+
+        println!("{}", obj);
+    }
 }
