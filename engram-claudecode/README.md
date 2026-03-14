@@ -105,8 +105,10 @@ On every `UserPromptSubmit` event:
 
 1. The hook reads the user's prompt from stdin.
 2. Prompts shorter than 10 characters are skipped (no retrieval for "hi").
-3. If the Engram index is dirty, an incremental compile runs first.
-4. `engram query --format json --agent claude-code` searches the index.
+3. If no `.brv/` workspace exists, one is auto-initialized via
+   `engram init` (empty index, no facts yet).
+4. If the Engram index is dirty, an incremental compile runs first.
+5. `engram query --format json --agent claude-code` searches the index.
 5. Results are formatted into a Markdown context block.
 6. The context block is written to stdout — Claude Code prepends it to the
    conversation so the model sees relevant facts before responding.

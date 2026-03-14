@@ -105,16 +105,23 @@ Three steps to go from a fresh project to a working Engram workspace.
 
 ### Step 1 — Initialize a workspace
 
-Navigate to your project and create the first fact. Engram initializes
-the `.brv/` workspace automatically on first use:
+If you have the Claude Code plugin installed, the workspace initializes
+automatically on your first prompt in any project. You can also
+initialize manually:
 
 ```bash
 cd your-project
+engram init
+```
+
+Then add your first fact:
+
+```bash
 engram curate --sync "Brief description of this project and its purpose"
 ```
 
-This creates `.brv/context-tree/`, writes the fact as a `.md` file,
-compiles the index, and makes the fact immediately queryable.
+This writes the fact as a `.md` file, compiles the index, and makes
+it immediately queryable.
 
 ### Step 2 — Add more facts
 

@@ -38,6 +38,12 @@ enum Commands {
         #[arg(long, default_value = "cli")]
         agent: String,
     },
+    /// Initialize a new Engram workspace
+    Init {
+        /// Path to the workspace root (default: current directory)
+        #[arg(long)]
+        workspace: Option<String>,
+    },
     /// Query the memory index
     Query {
         /// The query string to search for
@@ -190,6 +196,52 @@ fn main() -> anyhow::Result<()> {
             if result.index_error.is_some() {
                 std::process::exit(1);
             }
+        }
+        Commands::Init { workspace } => {
+            let ws_root = workspace
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| root.clone());
+            let brv = ws_root.join(".brv");
+
+            if brv.join("context-tree").exists() {
+                println!("Engram workspace already initialized at .brv/");
+                return Ok(());
+            }
+
+            // Create directory structure
+            std::fs::create_dir_all(brv.join("context-tree"))?;
+            std::fs::create_dir_all(brv.join("audit"))?;
+
+            // Write default config if it doesn't exist
+            let config_path = brv.join("engram.toml");
+            if !config_path.exists() {
+                std::fs::write(
+                    &config_path,
+                    "# Low threshold recommended for new workspaces with small corpora\n\
+                     [query]\n\
+                     score_threshold = 0.0\n\
+                     \n\
+                     [access_tracking]\n\
+                     enabled = true\n\
+                     importance_delta = 0.001\n",
+                )?;
+            }
+
+            // Run initial compile to create an empty index
+            let init_config = load_workspace_config(&brv);
+            let init_bulwark = BulwarkHandle::new_from_config(
+                brv.join("bulwark.toml"),
+                Some(brv.join("audit")),
+                &init_config.audit,
+            );
+            engram_compiler::compile_context_tree(&ws_root, true, &init_bulwark);
+
+            println!("Engram workspace initialized at .brv/");
+            println!(
+                "Tip: add '.brv/index/' to your .gitignore (compiled index is a\n\
+                 derived artifact). Keep '.brv/context-tree/' and '.brv/engram.toml'\n\
+                 in version control."
+            );
         }
         Commands::Curate { sync, summary, agent } => {
             std::env::set_var("ENGRAM_AGENT_ID", &agent);

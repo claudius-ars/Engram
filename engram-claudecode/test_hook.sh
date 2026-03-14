@@ -151,6 +151,23 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# Test 9: Auto-initialize in new project
+echo "Test 9: Auto-initialize (expect: silent success, .brv/ created)"
+NEW_PROJECT=$(mktemp -d)
+OUTPUT=$(echo "test query" | \
+    CLAUDE_PROJECT_DIR="$NEW_PROJECT" \
+    ENGRAM_WORKSPACE="$NEW_PROJECT" \
+    ENGRAM_BIN="${ENGRAM_BIN:-$(command -v engram 2>/dev/null || echo "")}" \
+    "$SCRIPT_DIR/hooks/user_prompt_submit.sh" 2>/dev/null) || true
+if [ -d "$NEW_PROJECT/.brv" ]; then
+    echo "  PASS (.brv/ created)"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: .brv/ not created in $NEW_PROJECT"
+    FAIL=$((FAIL + 1))
+fi
+rm -rf "$NEW_PROJECT"
+
 echo ""
 echo "════════════════════════════════════════"
 echo "  Results: $PASS passed, $FAIL failed"

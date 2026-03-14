@@ -11,7 +11,28 @@ if [ -n "${ENGRAM_WORKSPACE:-}" ] && [ -d "$ENGRAM_WORKSPACE/.brv" ]; then
 elif [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR/.brv" ]; then
     WORKSPACE="$CLAUDE_PROJECT_DIR"
 else
-    exit 0
+    # No .brv/ found — auto-initialize if we have a project dir and binary
+    if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+        exit 0
+    fi
+
+    # Resolve binary before attempting init
+    if [ -n "${ENGRAM_BIN:-}" ] && [ -x "$ENGRAM_BIN" ]; then
+        _BIN="$ENGRAM_BIN"
+    elif command -v engram &>/dev/null; then
+        _BIN="$(command -v engram)"
+    else
+        exit 0
+    fi
+
+    # Initialize the workspace silently
+    (cd "$CLAUDE_PROJECT_DIR" && "$_BIN" init) >/dev/null 2>&1 || true
+
+    if [ -d "$CLAUDE_PROJECT_DIR/.brv" ]; then
+        WORKSPACE="$CLAUDE_PROJECT_DIR"
+    else
+        exit 0
+    fi
 fi
 
 # 2. Locate binary
